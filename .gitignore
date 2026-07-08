@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.egg-info/
+chroma_db/
+structured_db/
+.pytest_cache/
+*.db

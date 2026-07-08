@@ -1,0 +1,79 @@
+# ============================================================
+# RAG Pipeline — Central Configuration
+# All runtime parameters live here. Application logic MUST
+# read from this file (or request parameters) — never hardcode.
+# ============================================================
+
+# ── Embedding ────────────────────────────────────────────────
+embedding:
+  model_name: "all-MiniLM-L6-v2"   # sentence-transformers model
+  batch_size: 64                     # encoding batch size
+  device: "cpu"                      # "cpu" or "cuda"
+
+# ── Vector Store ─────────────────────────────────────────────
+vector_store:
+  backend: "chroma"                  # "chroma" | "faiss"
+  chroma_persist_dir: "./chroma_db"
+  faiss_index_path: "./faiss_index/index.faiss"
+  collection_name: "rag_chunks"
+
+# ── Ollama ───────────────────────────────────────────────────
+ollama:
+  host: "http://localhost:11434"
+  default_text_model: "llama3.2"     # overridable per-request
+  default_vision_model: "llava"      # multimodal / vision model
+  request_timeout: 120               # seconds
+
+# ── Chunking ─────────────────────────────────────────────────
+chunking:
+  default_chunk_size: 800            # tokens (approx characters / 4)
+  default_chunk_overlap: 150
+  # Per-source overrides
+  pdf:
+    chunk_size: 800
+    chunk_overlap: 150
+  email:
+    chunk_size: 600
+    chunk_overlap: 100
+  chat:
+    window_messages: 10              # messages per conversation chunk
+  invoice:
+    single_chunk: true               # invoices are not split
+  audio:
+    chunk_size: 1200
+    chunk_overlap: 200
+
+# ── Structured DB ────────────────────────────────────────────
+structured_db:
+  sqlite_path: "./structured_db/structured.db"
+  # SQL router: queries matching these patterns go to SQLite
+  sql_router_keywords:
+    - "total"
+    - "sum"
+    - "how much"
+    - "amount"
+    - "balance"
+    - "invoice number"
+    - "vendor"
+    - "payment"
+    - "date range"
+    - "between"
+    - "paid"
+    - "outstanding"
+
+# ── Audio Transcription ──────────────────────────────────────
+audio:
+  whisper_model_size: "base"         # tiny | base | small | medium | large-v3
+  whisper_device: "cpu"
+  diarization_enabled: false         # requires HuggingFace token
+  huggingface_token: ""              # set if diarization_enabled: true
+
+# ── Ingestion / Sync ─────────────────────────────────────────
+sync:
+  sync_state_db: "./structured_db/sync_state.db"
+  schedule_cron: "0 2 * * *"        # default: 2 AM daily
+
+# ── Logging ──────────────────────────────────────────────────
+logging:
+  level: "INFO"                      # DEBUG | INFO | WARNING | ERROR
+  log_file: "./rag_pipeline.log"

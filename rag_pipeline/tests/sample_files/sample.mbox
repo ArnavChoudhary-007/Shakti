@@ -1,0 +1,15 @@
+From MAILER-DAEMON Tue Jul  7 13:52:09 2026
+From: alice@example.com
+To: bob@example.com
+Subject: Test email for RAG connector
+Date: Mon, 15 Jan 2024 10:00:00 +0000
+Message-ID: <test-001@example.com>
+
+Hello Bob,
+
+This is a test email for the RAG pipeline email connector.
+It contains some content to verify citation metadata.
+
+Best,
+Alice
+

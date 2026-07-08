@@ -1,0 +1,37 @@
+{
+  "name": "Project Finance Chat",
+  "type": "private_group",
+  "messages": [
+    {
+      "id": 1,
+      "type": "message",
+      "date": "2024-01-15T10:00:00",
+      "from": "Alice",
+      "from_id": "user123",
+      "text": "Has anyone reviewed the Q4 invoices?"
+    },
+    {
+      "id": 2,
+      "type": "message",
+      "date": "2024-01-15T10:01:00",
+      "from": "Bob",
+      "from_id": "user456",
+      "text": [
+        "Yes, I checked. Acme Corp invoice ",
+        {
+          "type": "bold",
+          "text": "INV-001"
+        },
+        " is $5,000 due Jan 31."
+      ]
+    },
+    {
+      "id": 3,
+      "type": "service",
+      "date": "2024-01-15T10:02:00",
+      "actor": "Bob",
+      "action": "pin_message",
+      "text": ""
+    }
+  ]
+}

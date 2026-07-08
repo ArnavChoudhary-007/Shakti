@@ -1,0 +1,86 @@
+# ============================================================
+# RAG Pipeline — Requirements
+# Install: pip install -r requirements.txt
+# Python 3.11+ required
+# ============================================================
+
+# ── Core / Config ────────────────────────────────────────────
+pyyaml>=6.0.1
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+
+# ── Phase 1: Connectors ──────────────────────────────────────
+# PDF (digital + OCR fallback)
+pymupdf>=1.24.0           # fitz — fast PDF parsing
+pymupdf4llm>=0.0.17       # markdown extraction helper
+pdf2image>=1.17.0         # scanned page → PIL image
+pytesseract>=0.3.10       # OCR (requires Tesseract binary)
+Pillow>=10.3.0
+
+# Word documents (.docx, .doc)
+python-docx>=1.1.0
+
+# PowerPoint presentations (.pptx, .ppt)
+python-pptx>=0.6.23
+
+# Excel / CSV
+pandas>=2.2.0
+openpyxl>=3.1.2
+xlrd>=2.0.1               # legacy .xls support
+
+# Email — mbox (stdlib) + PST
+# libpff-python — install separately if PST support needed:
+# pip install libpff-python  (may require build tools on Windows)
+
+# Chat exports (WhatsApp, Telegram, Slack, Teams) — stdlib json + regex
+
+# Audio transcription + diarization
+faster-whisper>=1.0.1
+# pyannote-audio>=3.1.1   # optional; requires HuggingFace token
+#   install separately: pip install pyannote-audio
+
+# ── Phase 2: Normalizer ──────────────────────────────────────
+# (pydantic already listed above)
+
+# ── Phase 3: Chunker ─────────────────────────────────────────
+langchain-text-splitters>=0.2.4
+
+# ── Phase 4: Structured DB ───────────────────────────────────
+# sqlite3 — stdlib
+# pandas already listed above
+
+# ── Phase 5: Embedder ────────────────────────────────────────
+sentence-transformers>=3.0.0
+torch>=2.2.0              # CPU build; use torch+cu121 for CUDA
+# For CPU-only (smaller install):
+# pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# ── Phase 6: Vector Store ────────────────────────────────────
+chromadb>=0.5.0
+faiss-cpu>=1.8.0          # swap to faiss-gpu if CUDA available
+
+# ── Phase 7: Retrieval + Generation ─────────────────────────
+rank-bm25>=0.2.2          # BM25 hybrid retrieval
+httpx>=0.27.0             # async Ollama streaming
+# tiktoken — optional, for token counting
+# tiktoken>=0.7.0
+
+# ── Phase 8: API Layer ───────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9   # for file upload endpoints
+sse-starlette>=2.1.0      # Server-Sent Events for streaming
+
+# ── Phase 10: Incremental Sync ───────────────────────────────
+apscheduler>=3.10.4
+
+# ── Phase 11: Tests ──────────────────────────────────────────
+pytest>=8.2.0
+pytest-asyncio>=0.23.0
+httpx>=0.27.0             # async test client for FastAPI
+
+# ── Utilities ────────────────────────────────────────────────
+rich>=13.7.0              # pretty console output
+tqdm>=4.66.0              # progress bars
+python-dateutil>=2.9.0
+chardet>=5.2.0            # encoding detection for text files

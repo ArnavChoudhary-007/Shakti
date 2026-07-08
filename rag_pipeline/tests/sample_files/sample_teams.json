@@ -1,0 +1,35 @@
+{
+  "TeamName": "Finance Team",
+  "ChannelName": "General",
+  "Messages": [
+    {
+      "Id": "msg-001",
+      "CreatedDateTime": "2024-01-15T10:00:00Z",
+      "From": {
+        "User": {
+          "DisplayName": "Alice Smith"
+        }
+      },
+      "Body": {
+        "Content": "The Q4 vendor payments have been reconciled.",
+        "ContentType": "text"
+      },
+      "Replies": [
+        {
+          "Id": "msg-001-r1",
+          "CreatedDateTime": "2024-01-15T10:05:00Z",
+          "From": {
+            "User": {
+              "DisplayName": "Bob Jones"
+            }
+          },
+          "Body": {
+            "Content": "<p>Thanks Alice, I will update the ledger.</p>",
+            "ContentType": "html"
+          },
+          "Replies": []
+        }
+      ]
+    }
+  ]
+}

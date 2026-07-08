@@ -1,0 +1,21 @@
+[
+  {
+    "type": "message",
+    "user": "U001",
+    "text": "Hey team, the invoice from Acme <@U002> has been approved.",
+    "ts": "1705312800.000100"
+  },
+  {
+    "type": "message",
+    "user": "U002",
+    "text": "Great! I will process the payment by EOD.",
+    "ts": "1705312860.000200"
+  },
+  {
+    "type": "message",
+    "subtype": "channel_join",
+    "user": "U003",
+    "text": "joined",
+    "ts": "1705312900.000300"
+  }
+]

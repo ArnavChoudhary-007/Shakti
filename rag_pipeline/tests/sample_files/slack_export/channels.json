@@ -1,0 +1,12 @@
+[
+  {
+    "id": "C001",
+    "name": "general",
+    "topic": {
+      "value": "General discussions"
+    },
+    "purpose": {
+      "value": "Team channel"
+    }
+  }
+]
