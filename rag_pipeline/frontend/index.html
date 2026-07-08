@@ -11,39 +11,41 @@
   <style>
     /* ── Design tokens ─────────────────────────────────── */
     :root {
-      --bg-base:        #0a0c0f;
-      --bg-surface:     #111418;
-      --bg-elevated:    #181d24;
-      --bg-card:        #1e242e;
-      --bg-input:       #141920;
-      --border:         rgba(255,255,255,0.07);
-      --border-active:  rgba(99,179,237,0.4);
-      --accent:         #63b3ed;
-      --accent-glow:    rgba(99,179,237,0.15);
-      --accent-2:       #9f7aea;
-      --accent-3:       #68d391;
-      --text-primary:   #e8edf5;
-      --text-secondary: #8a96a8;
-      --text-muted:     #4a5568;
-      --tag-pdf:        #e53e3e;
-      --tag-docx:       #3182ce;
-      --tag-excel:      #38a169;
-      --tag-audio:      #d69e2e;
-      --tag-chat:       #9f7aea;
-      --tag-invoice:    #ed8936;
-      --tag-email:      #4299e1;
-      --radius-sm:      6px;
-      --radius-md:      10px;
+      --bg-base:        #fdfcfb;
+      --bg-surface:     #ffffff;
+      --bg-elevated:    #fafaf9;
+      --bg-card:        #ffffff;
+      --bg-input:       #f5f5f4;
+      --border:         #e5e7eb;
+      --border-active:  #111111;
+      --accent:         #111111;
+      --accent-glow:    #f3f4f6;
+      --accent-2:       #4b5563;
+      --accent-3:       #10b981;
+      --text-primary:   #111111;
+      --text-secondary: #4b5563;
+      --text-muted:     #9ca3af;
+      --tag-pdf:        #dc2626;
+      --tag-docx:       #2563eb;
+      --tag-excel:      #16a34a;
+      --tag-audio:      #d97706;
+      --tag-chat:       #9333ea;
+      --tag-invoice:    #ea580c;
+      --tag-email:      #0284c7;
+      --radius-sm:      8px;
+      --radius-md:      12px;
       --radius-lg:      16px;
-      --shadow-card:    0 4px 24px rgba(0,0,0,0.4);
-      --transition:     0.18s cubic-bezier(0.4,0,0.2,1);
+      --shadow-card:    0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+      --transition:     0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: 'Inter', system-ui, sans-serif;
-      background: var(--bg-base);
+      background-color: var(--bg-base);
+      background-image: radial-gradient(circle, rgba(17,17,17,0.08) 1px, transparent 1px);
+      background-size: 24px 24px;
       color: var(--text-primary);
       min-height: 100vh;
       line-height: 1.6;
@@ -52,8 +54,8 @@
     /* ── Scrollbar ──────────────────────────────────────── */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
 
     /* ── Layout ─────────────────────────────────────────── */
     .app {
@@ -89,11 +91,11 @@
 
     .logo-icon {
       width: 32px; height: 32px;
-      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      background: var(--accent);
       border-radius: 8px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 16px;
-      box-shadow: 0 0 16px rgba(99,179,237,0.3);
+      font-size: 16px; color: #ffffff;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
 
     .header-spacer { flex: 1; }
@@ -144,9 +146,9 @@
 
     .sidebar-label {
       font-size: 10px;
-      font-weight: 600;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 1px;
+      letter-spacing: 0.1em;
       color: var(--text-muted);
       padding: 8px 10px 4px;
     }
@@ -253,9 +255,9 @@
       text-align: center;
       padding: 40px;
     }
-    .empty-icon { font-size: 48px; opacity: 0.5; }
-    .empty-title { font-size: 20px; font-weight: 600; color: var(--text-secondary); }
-    .empty-desc { font-size: 14px; max-width: 400px; }
+    .empty-icon { font-size: 48px; opacity: 1; }
+    .empty-title { font-size: 32px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.5px; }
+    .empty-desc { font-size: 16px; max-width: 400px; color: var(--text-secondary); }
 
     .suggestion-grid {
       display: grid;
@@ -296,18 +298,19 @@
       display: flex; align-items: center; justify-content: center;
       font-size: 14px; flex-shrink: 0;
     }
-    .avatar.ai { background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 0 12px rgba(99,179,237,0.3); }
-    .avatar.user { background: var(--bg-card); border: 1px solid var(--border); }
+    .avatar.ai { background: var(--accent); color: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .avatar.user { background: var(--bg-surface); border: 1px solid var(--border); }
 
     .bubble {
-      padding: 12px 16px;
+      padding: 16px 20px;
       border-radius: var(--radius-md);
-      font-size: 14px;
+      font-size: 15px;
       line-height: 1.7;
       max-width: calc(100% - 48px);
+      box-shadow: var(--shadow-card);
     }
-    .bubble.ai { background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-primary); }
-    .bubble.user { background: linear-gradient(135deg, rgba(99,179,237,0.15), rgba(159,122,234,0.15)); border: 1px solid rgba(99,179,237,0.2); color: var(--text-primary); }
+    .bubble.ai { background: #ffffff; border: 1px solid var(--border); color: var(--text-primary); }
+    .bubble.user { background: #111111; border: 1px solid #111111; color: #ffffff; }
 
     .bubble-content {}
     .streaming-cursor::after { content: '▋'; animation: blink 0.8s infinite; color: var(--accent); }
@@ -322,7 +325,7 @@
       flex-direction: column;
       gap: 6px;
     }
-    .citations-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 4px; }
+    .citations-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 4px; }
 
     .citation-card {
       display: flex;
@@ -338,11 +341,11 @@
 
     .citation-num {
       width: 20px; height: 20px;
-      background: var(--accent-glow);
-      border: 1px solid var(--border-active);
+      background: var(--bg-base);
+      border: 1px solid var(--border);
       border-radius: 4px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 10px; font-weight: 700; color: var(--accent);
+      font-size: 10px; font-weight: 700; color: var(--text-primary);
       flex-shrink: 0;
     }
     .citation-body { flex: 1; min-width: 0; }
