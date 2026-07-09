@@ -22,7 +22,7 @@ ollama:
   host: "http://localhost:11434"
   default_text_model: "llama3.2"     # overridable per-request
   default_vision_model: "llava"      # multimodal / vision model
-  request_timeout: 120               # seconds
+  request_timeout: 300               # seconds
 
 # ── Chunking ─────────────────────────────────────────────────
 chunking:

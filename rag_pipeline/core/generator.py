@@ -191,31 +191,40 @@ class Generator:
         prompt = _build_prompt(query, chunks)
         full_answer: List[str] = []
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream(
-                "POST",
-                f"{self.ollama_host}/api/generate",
-                json={
-                    "model": resolved_model,
-                    "system": _SYSTEM_PROMPT,
-                    "prompt": prompt,
-                    "stream": True,
-                },
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        data = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    token = data.get("response", "")
-                    if token:
-                        full_answer.append(token)
-                        yield token
-                    if data.get("done", False):
-                        break
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.ollama_host}/api/generate",
+                    json={
+                        "model": resolved_model,
+                        "system": _SYSTEM_PROMPT,
+                        "prompt": prompt,
+                        "stream": True,
+                    },
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        token = data.get("response", "")
+                        if token:
+                            full_answer.append(token)
+                            yield token
+                        if data.get("done", False):
+                            break
+        except httpx.TimeoutException:
+            logger.error(f"Ollama request timed out after {self.timeout}s")
+            yield "\n[Error: The AI model took too long to respond. It may be loading into memory. Please try your request again in a moment.]"
+            return
+        except Exception as e:
+            logger.error(f"Ollama request failed: {e}")
+            yield f"\n[Error connecting to Ollama: {e}]"
+            return
 
         # Post-process citations and yield as sentinel
         answer_text = "".join(full_answer)
@@ -249,19 +258,26 @@ class Generator:
         prompt = _build_prompt(query, chunks)
         full_answer = ""
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                f"{self.ollama_host}/api/generate",
-                json={
-                    "model": resolved_model,
-                    "system": _SYSTEM_PROMPT,
-                    "prompt": prompt,
-                    "stream": False,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            full_answer = data.get("response", "")
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.post(
+                    f"{self.ollama_host}/api/generate",
+                    json={
+                        "model": resolved_model,
+                        "system": _SYSTEM_PROMPT,
+                        "prompt": prompt,
+                        "stream": False,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                full_answer = data.get("response", "")
+        except httpx.TimeoutException:
+            logger.error(f"Ollama request timed out after {self.timeout}s")
+            full_answer = "[Error: The AI model took too long to respond. It may be loading into memory. Please try your request again in a moment.]"
+        except Exception as e:
+            logger.error(f"Ollama request failed: {e}")
+            full_answer = f"[Error connecting to Ollama: {e}]"
 
         citations = _extract_citations(full_answer, chunks)
         return CitationResult(
