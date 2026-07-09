@@ -53,8 +53,9 @@ immediately by a citation in square brackets, e.g. [1] or [2].
 
 Rules:
 - Cite every statement. If two sources support the same claim, cite both: [1][2].
-- If the answer is not in the provided sources, say exactly:
-  "I could not find this information in the provided sources."
+- If the answer is not in the provided sources, your response MUST BE EXACTLY:
+  "not found in the documents"
+  Do not explain, elaborate, or add any other words.
 - Do NOT cite sources that are irrelevant to the claim.
 - Do NOT make up information.
 - Be concise and direct.
@@ -113,6 +114,9 @@ def _extract_citations(
     Find all [N] markers used in the answer and build structured Citation objects.
     Only includes indices that actually appear in the answer text.
     """
+    if "not found" in answer.lower():
+        return []
+
     used_indices = sorted(set(int(m) for m in _CITATION_RE.findall(answer)))
     citations: List[Citation] = []
 
@@ -266,6 +270,46 @@ class Generator:
             model=resolved_model,
             used_sql=used_sql,
         )
+
+    # ── Contextualize Query ───────────────────────────────────
+
+    async def contextualize_query(self, query: str, history: List[Dict[str, str]], model: Optional[str] = None) -> str:
+        """Rewrite the query to be standalone given the chat history."""
+        if not history:
+            return query
+            
+        resolved_model = self._resolve_model(model)
+        
+        # Build conversation history string
+        hist_lines = []
+        for msg in history:
+            role = "User" if msg.get("role") == "user" else "Assistant"
+            hist_lines.append(f"{role}: {msg.get('content')}")
+        hist_str = "\n".join(hist_lines)
+        
+        prompt = (
+            "Given a chat history and the latest user question "
+            "which might reference context in the chat history, formulate a standalone question "
+            "which can be understood without the chat history. Do NOT answer the question, "
+            "just reformulate it if needed and otherwise return it as is.\n\n"
+            f"Chat History:\n{hist_str}\n\n"
+            f"Latest Question: {query}\n\n"
+            "Standalone Question:"
+        )
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.post(
+                f"{self.ollama_host}/api/generate",
+                json={
+                    "model": resolved_model,
+                    "prompt": prompt,
+                    "stream": False,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            rewritten = data.get("response", "").strip()
+            return rewritten if rewritten else query
 
     # ── SQL answer wrapper ────────────────────────────────────
 

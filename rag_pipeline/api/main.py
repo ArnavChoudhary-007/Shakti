@@ -148,6 +148,7 @@ class QueryRequest(BaseModel):
     model: Optional[str] = None
     stream: bool = False
     filters: Optional[Dict[str, Any]] = None
+    history: Optional[List[Dict[str, str]]] = None
 
 
 class CitationOut(BaseModel):
@@ -252,6 +253,9 @@ async def query(req: QueryRequest):
     - Supports streaming (stream=true) or JSON response.
     - Every answer is grounded with numbered citations.
     """
+    if req.history:
+        req.query = await _get_generator().contextualize_query(req.query, req.history, model=req.model)
+
     route = _get_router().route(req.query)
 
     if route.use_sql:
@@ -269,7 +273,7 @@ async def _handle_vector_query(req: QueryRequest, route: Any) -> QueryResponse:
     chunks = _get_retriever().retrieve(req.query, top_k=req.top_k, filters=req.filters)
     if not chunks:
         return QueryResponse(
-            answer="I could not find relevant information in the indexed documents.",
+            answer="not found in the documents ",
             citations=[],
             model=req.model or _get_generator().default_text_model,
             used_sql=False,
@@ -328,7 +332,7 @@ async def _stream_response(req: QueryRequest, route: Any) -> AsyncIterator[str]:
     """SSE streaming: sends tokens as data: ... events, then a citations event."""
     chunks = _get_retriever().retrieve(req.query, top_k=req.top_k, filters=req.filters)
     if not chunks:
-        yield "data: I could not find relevant information.\n\n"
+        yield "data: not found in the documents \n\n"
         yield "data: [DONE]\n\n"
         return
 

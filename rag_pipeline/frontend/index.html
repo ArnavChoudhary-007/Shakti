@@ -612,9 +612,6 @@
       <div class="status-dot" id="statusDot"></div>
       <span id="statusText">Checking…</span>
     </div>
-    <select id="modelSelect" class="model-selector" title="Active Ollama model">
-      <option value="">loading models…</option>
-    </select>
   </header>
 
   <!-- ── Sidebar ─────────────────────────────────────────── -->
@@ -656,12 +653,6 @@
           <div class="empty-icon">🔎</div>
           <div class="empty-title">Ask anything about your documents</div>
           <div class="empty-desc">Every answer is grounded with numbered citations pointing back to the exact source.</div>
-          <div class="suggestion-grid">
-            <button class="suggestion-chip" onclick="useSuggestion(this)">What invoices are outstanding from Acme Corp?</button>
-            <button class="suggestion-chip" onclick="useSuggestion(this)">Summarise the Q4 earnings report</button>
-            <button class="suggestion-chip" onclick="useSuggestion(this)">What did the CEO say about expansion?</button>
-            <button class="suggestion-chip" onclick="useSuggestion(this)">List all payments over $5,000</button>
-          </div>
         </div>
       </div>
 
@@ -680,6 +671,9 @@
           <button id="sendBtn" onclick="sendQuery()" title="Send (Enter)">↑</button>
         </div>
         <div class="input-meta">
+          <select id="modelSelect" class="model-selector" title="Active Ollama model" style="padding: 2px 8px; font-size: 11px; color: var(--text-secondary); background: transparent;">
+            <option value="">loading models…</option>
+          </select>
           <span>⏎ Send · Shift+⏎ Newline</span>
           <span id="chunkCount">— chunks indexed</span>
           <span id="routeHint"></span>
@@ -829,6 +823,8 @@
   }
 
   // ── Query ────────────────────────────────────────────────
+  let chatHistory = [];
+
   async function sendQuery() {
     const input = document.getElementById('queryInput');
     const query = input.value.trim();
@@ -846,11 +842,15 @@
     const aiMsg = addMessage('ai', '', true);
     addToHistory(query);
 
+    // Prepare payload
+    const historyPayload = chatHistory.slice(-6); // send last 3 turns
+    chatHistory.push({ role: "user", content: query });
+
     try {
       if (stream) {
-        await streamQuery(query, model, aiMsg);
+        await streamQuery(query, model, aiMsg, historyPayload);
       } else {
-        await regularQuery(query, model, aiMsg);
+        await regularQuery(query, model, aiMsg, historyPayload);
       }
     } catch (e) {
       setMessageText(aiMsg, `Error: ${e.message}`);
@@ -861,8 +861,8 @@
     }
   }
 
-  async function regularQuery(query, model, aiMsg) {
-    const payload = { query, top_k: 5, model, stream: false };
+  async function regularQuery(query, model, aiMsg, historyPayload) {
+    const payload = { query, top_k: 5, model, stream: false, history: historyPayload };
     const r = await fetch(`${API}/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -871,10 +871,11 @@
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     renderAnswer(aiMsg, d.answer, d.citations, d.used_sql, d.route_reason);
+    chatHistory.push({ role: "ai", content: d.answer });
   }
 
-  async function streamQuery(query, model, aiMsg) {
-    const payload = { query, top_k: 5, model, stream: true };
+  async function streamQuery(query, model, aiMsg, historyPayload) {
+    const payload = { query, top_k: 5, model, stream: true, history: historyPayload };
     const r = await fetch(`${API}/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -905,12 +906,17 @@
           } else {
             const token = data.replace(/\\n/g, '\n');
             fullText += token;
-            setMessageText(aiMsg, fullText, true);
+            if (fullText.toLowerCase().includes("not found")) {
+               setMessageText(aiMsg, "not found in the documents", true);
+            } else {
+               setMessageText(aiMsg, fullText, true);
+            }
           }
         }
       }
     }
     renderAnswer(aiMsg, fullText, citations, false, 'streaming');
+    chatHistory.push({ role: "ai", content: fullText });
   }
 
   function renderAnswer(aiMsg, answer, citations, usedSql, routeReason) {
@@ -924,18 +930,45 @@
     bubble.appendChild(badge);
 
     // Answer with [N] references highlighted
+    let processedAnswer = answer;
+    if (processedAnswer.toLowerCase().includes("not found")) {
+      processedAnswer = "not found in the documents";
+    }
+    
+    // 1. Determine unique citations for mapping
+    const uniqueCitations = [];
+    const regex = /\[(\d+)\]/g;
+    let match;
+    while ((match = regex.exec(processedAnswer)) !== null) {
+      const idx = parseInt(match[1]);
+      if (!uniqueCitations.includes(idx)) uniqueCitations.push(idx);
+    }
+
     const content = document.createElement('div');
     content.className = 'bubble-content';
-    content.innerHTML = answer.replace(/\[(\d+)\]/g,
-      '<sup style="color:var(--accent);font-weight:700;cursor:pointer" title="See citation $1">[$1]</sup>');
+    if (!processedAnswer.toLowerCase().includes("not found")) {
+        content.innerHTML = processedAnswer.replace(/\[(\d+)\]/g, (m, p1) => {
+          const oldIdx = parseInt(p1);
+          const newIdx = uniqueCitations.indexOf(oldIdx) + 1;
+          return `<sup style="color:var(--accent);font-weight:700;cursor:pointer" title="See citation ${newIdx}">[${newIdx}]</sup>`;
+        });
+    } else {
+        content.innerHTML = processedAnswer;
+    }
     bubble.appendChild(content);
 
     // Citations
     if (citations && citations.length > 0) {
-      const citDiv = document.createElement('div');
-      citDiv.className = 'citations';
-      citDiv.innerHTML = '<div class="citations-label">Sources</div>';
-      citations.forEach(c => {
+      const mappedCitations = citations
+        .filter(c => uniqueCitations.includes(c.index))
+        .map(c => ({ ...c, index: uniqueCitations.indexOf(c.index) + 1 }))
+        .sort((a, b) => a.index - b.index);
+
+      if (mappedCitations.length > 0) {
+        const citDiv = document.createElement('div');
+        citDiv.className = 'citations';
+        citDiv.innerHTML = '<div class="citations-label">Sources</div>';
+        mappedCitations.forEach(c => {
         const tagClass = 'tag-' + (c.source_type || 'pdf');
         citDiv.innerHTML += `
           <div class="citation-card">
@@ -952,6 +985,7 @@
           </div>`;
       });
       bubble.appendChild(citDiv);
+      }
     }
 
     document.getElementById('chatContainer').scrollTop = 9999;
@@ -976,7 +1010,20 @@
   function setMessageText(msgEl, text, streaming = false) {
     const content = msgEl.querySelector('.bubble-content');
     if (content) {
-      content.textContent = text;
+      let processed = text;
+      const uniqueCitations = [];
+      const regex = /\[(\d+)\]/g;
+      let match;
+      while ((match = regex.exec(processed)) !== null) {
+         const idx = parseInt(match[1]);
+         if (!uniqueCitations.includes(idx)) uniqueCitations.push(idx);
+      }
+      processed = processed.replace(/\[(\d+)\]/g, (m, p1) => {
+         const oldIdx = parseInt(p1);
+         const newIdx = uniqueCitations.indexOf(oldIdx) + 1;
+         return `[${newIdx}]`;
+      });
+      content.textContent = processed;
       if (streaming) content.classList.add('streaming-cursor');
       else content.classList.remove('streaming-cursor');
     }
@@ -994,6 +1041,7 @@
       <div class="empty-title">Ask anything about your documents</div>
       <div class="empty-desc">Every answer is grounded with numbered citations.</div>
     </div>`;
+    chatHistory = [];
   }
 
   // ── History ──────────────────────────────────────────────
