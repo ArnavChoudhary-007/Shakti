@@ -685,15 +685,21 @@
     <div class="panel" id="panelIngest">
       <div class="ingest-panel">
         <div class="drop-zone" id="dropZone"
-          onclick="document.getElementById('fileInput').click()"
           ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
           <div class="drop-icon">📂</div>
-          <div class="drop-title">Drop files here or click to browse</div>
+          <div class="drop-title">Drop files or folders here</div>
           <div class="drop-sub">Files are processed locally — nothing leaves your machine</div>
           <div class="drop-types">PDF · DOCX · PPTX · XLSX · CSV · EML · MBOX · TXT · JSON · MP3 · WAV</div>
+          
+          <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: center;">
+            <button class="btn btn-ghost" onclick="document.getElementById('fileInput').click()">Select Files</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('folderInput').click()">Select Folder</button>
+          </div>
         </div>
-        <input type="file" id="fileInput" multiple
+        <input type="file" id="fileInput" multiple style="display:none;"
           accept=".pdf,.docx,.pptx,.xlsx,.csv,.eml,.mbox,.txt,.json,.mp3,.wav,.m4a,.ogg"
+          onchange="ingestFiles(this.files)" />
+        <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none;"
           onchange="ingestFiles(this.files)" />
         <div class="progress-bar" id="progressBar">
           <div class="progress-fill" id="progressFill"></div>
@@ -1070,10 +1076,54 @@
   // ── Ingest ───────────────────────────────────────────────
   function onDragOver(e) { e.preventDefault(); document.getElementById('dropZone').classList.add('drag-over'); }
   function onDragLeave(e) { document.getElementById('dropZone').classList.remove('drag-over'); }
-  function onDrop(e) {
+  async function onDrop(e) {
     e.preventDefault();
     document.getElementById('dropZone').classList.remove('drag-over');
-    ingestFiles(e.dataTransfer.files);
+    
+    const files = [];
+    if (e.dataTransfer.items) {
+      for (let i = 0; i < e.dataTransfer.items.length; i++) {
+        const item = e.dataTransfer.items[i];
+        if (item.kind === 'file') {
+          const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+          if (entry) {
+            await scanFiles(entry, files);
+          } else {
+            const f = item.getAsFile();
+            if (f) files.push(f);
+          }
+        }
+      }
+    } else {
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        files.push(e.dataTransfer.files[i]);
+      }
+    }
+    
+    if (files.length > 0) {
+      ingestFiles(files);
+    }
+  }
+
+  function scanFiles(entry, fileList) {
+    return new Promise((resolve) => {
+      if (entry.isFile) {
+        entry.file(file => {
+          fileList.push(file);
+          resolve();
+        });
+      } else if (entry.isDirectory) {
+        const dirReader = entry.createReader();
+        dirReader.readEntries(async (entries) => {
+          for (let i = 0; i < entries.length; i++) {
+            await scanFiles(entries[i], fileList);
+          }
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
   }
 
   async function ingestFiles(files) {
