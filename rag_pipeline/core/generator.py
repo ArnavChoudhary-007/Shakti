@@ -47,17 +47,16 @@ class CitationResult:
 # ── Prompt builder ────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """\
-You are a precise research assistant. Answer the user's question using ONLY \
-the sources provided below. Every factual claim you make MUST be followed \
-immediately by a citation in square brackets, e.g. [1] or [2].
+You are a precise extraction engine. Your sole purpose is to extract answers \
+using ONLY the provided context. You are explicitly FORBIDDEN from using \
+any external knowledge or prior training data.
 
 Rules:
-- Cite every statement. If two sources support the same claim, cite both: [1][2].
-- If the answer is not in the provided sources, your response MUST BE EXACTLY:
-  "not found in the documents"
-  Do not explain, elaborate, or add any other words.
-- Do NOT cite sources that are irrelevant to the claim.
-- Do NOT make up information.
+- Cite every statement with square brackets, e.g., [1] or [1][2].
+- If the answer is not contained entirely within the provided sources, you MUST \
+output EXACTLY and ONLY: "Not found in documents."
+- Do NOT explain, elaborate, or add any other words if the answer is not found.
+- Do NOT cite sources that are irrelevant.
 - Be concise and direct.
 """
 
@@ -167,11 +166,45 @@ class Generator:
         ollama_cfg = cfg.get("ollama", {})
         self.ollama_host = ollama_cfg.get("host", "http://localhost:11434")
         self.default_text_model = ollama_cfg.get("default_text_model", "llama3.2")
+        self.grader_model = ollama_cfg.get("grader_model", self.default_text_model)
         self.default_vision_model = ollama_cfg.get("default_vision_model", "llava")
         self.timeout = float(ollama_cfg.get("request_timeout", 120))
 
     def _resolve_model(self, model: Optional[str]) -> str:
         return model or self.default_text_model
+
+    async def grade_context(self, query: str, chunks: List[Dict[str, Any]]) -> bool:
+        """
+        Algorithmic Grader: Evaluate if the retrieved context contains the answer to the query.
+        """
+        if not chunks:
+            return False
+        
+        context = "\n".join([c.get("text", "") for c in chunks])
+        prompt = (
+            "Evaluate if the following context contains the answer to the user's query. "
+            "Output EXACTLY 'True' if it does, and 'False' if it does not. Do not output anything else.\n\n"
+            f"Query: {query}\n\nContext: {context}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    f"{self.ollama_host}/api/generate",
+                    json={
+                        "model": self.grader_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {"temperature": 0.0}
+                    }
+                )
+                if resp.status_code == 200:
+                    result = resp.json().get("response", "").strip()
+                    if "False" in result or "false" in result:
+                        return False
+                return True
+        except Exception as e:
+            logger.warning(f"Algorithmic Grader failed: {e}. Defaulting to True.")
+            return True
 
     # ── Async streaming ───────────────────────────────────────
 
@@ -421,3 +454,48 @@ class Generator:
 def build_prompt_preview(query: str, chunks: List[Dict[str, Any]]) -> str:
     """Return the prompt that would be sent to the model — useful for debugging."""
     return _SYSTEM_PROMPT + "\n\n" + _build_prompt(query, chunks)
+
+# ── KG Extractor ──────────────────────────────────────────────
+
+async def extract_kg_relationships(text: str, model: str = "llama3.2", host: str = "http://localhost:11434") -> List[Dict[str, Any]]:
+    """
+    Extracts knowledge graph entities and relationships from the provided text.
+    Returns a list of dicts: {"source": "node1", "target": "node2", "relation": "rel"}
+    """
+    prompt = (
+        "Extract key entities (such as People, Organizations, Projects, Concepts, and Invoices) "
+        "and the relationships between them from the following text.\n"
+        "Output a strictly valid JSON array of objects, where each object has exactly three string fields: "
+        "'source', 'target', and 'relation'. Do not output any markdown formatting, explanations, or other text.\n\n"
+        f"Text:\n{text[:3000]}"
+    )
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{host}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.0},
+                    "format": "json"
+                }
+            )
+            if resp.status_code == 200:
+                result = resp.json().get("response", "").strip()
+                try:
+                    data = json.loads(result)
+                    if isinstance(data, list):
+                        return [d for d in data if isinstance(d, dict) and "source" in d and "target" in d and "relation" in d]
+                    elif isinstance(data, dict):
+                        if "edges" in data and isinstance(data["edges"], list):
+                            return data["edges"]
+                        elif "source" in data and "target" in data and "relation" in data:
+                            return [data]
+                except json.JSONDecodeError:
+                    pass
+    except Exception as e:
+        logger.warning(f"Failed to extract KG relationships: {e}")
+        
+    return []

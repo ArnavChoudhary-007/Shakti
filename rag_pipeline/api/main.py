@@ -24,7 +24,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 import httpx
 import yaml
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -37,7 +37,7 @@ from rag_pipeline import get_config
 from rag_pipeline.core.embedder import Embedder
 from rag_pipeline.core.vectorstore import get_vector_store
 from rag_pipeline.core.retriever import Retriever
-from rag_pipeline.core.generator import Generator, build_prompt_preview
+from rag_pipeline.core.generator import Generator, build_prompt_preview, extract_kg_relationships
 from rag_pipeline.core.normalizer import Normalizer
 from rag_pipeline.core.chunker import Chunker
 from rag_pipeline.connectors import extract_file
@@ -271,11 +271,31 @@ async def query(req: QueryRequest):
 
 async def _handle_vector_query(req: QueryRequest, route: Any) -> QueryResponse:
     chunks = _get_retriever().retrieve(req.query, top_k=req.top_k, filters=req.filters)
+    
+    # 1. Vector Guard
+    threshold = _CONFIG.get("vector_store", {}).get("similarity_threshold", 0.75)
+    if chunks:
+        best_score = chunks[0].get("combined_score", chunks[0].get("score", 0.0))
+        if best_score < threshold:
+            chunks = []
+
     if not chunks:
         return QueryResponse(
-            answer="not found in the documents ",
+            answer="Not found in documents.",
             citations=[],
             model=req.model or _get_generator().default_text_model,
+            used_sql=False,
+            route_reason=route.reason,
+        )
+
+    # 2. Algorithmic Grader
+    gen = _get_generator()
+    is_relevant = await gen.grade_context(req.query, chunks)
+    if not is_relevant:
+        return QueryResponse(
+            answer="Not found in documents.",
+            citations=[],
+            model=req.model or gen.default_text_model,
             used_sql=False,
             route_reason=route.reason,
         )
@@ -331,12 +351,26 @@ async def _handle_sql_query(req: QueryRequest, route: Any) -> QueryResponse:
 async def _stream_response(req: QueryRequest, route: Any) -> AsyncIterator[str]:
     """SSE streaming: sends tokens as data: ... events, then a citations event."""
     chunks = _get_retriever().retrieve(req.query, top_k=req.top_k, filters=req.filters)
+    
+    # 1. Vector Guard
+    threshold = _CONFIG.get("vector_store", {}).get("similarity_threshold", 0.75)
+    if chunks:
+        best_score = chunks[0].get("combined_score", chunks[0].get("score", 0.0))
+        if best_score < threshold:
+            chunks = []
+
     if not chunks:
-        yield "data: not found in the documents \n\n"
+        yield "data: Not found in documents.\n\n"
         yield "data: [DONE]\n\n"
         return
 
+    # 2. Algorithmic Grader
     gen = _get_generator()
+    is_relevant = await gen.grade_context(req.query, chunks)
+    if not is_relevant:
+        yield "data: Not found in documents.\n\n"
+        yield "data: [DONE]\n\n"
+        return
     async for token in gen.generate_stream(req.query, chunks, model=req.model):
         if token.startswith("\n__CITATIONS__:"):
             # Strip prefix and send as a special event
@@ -352,7 +386,10 @@ async def _stream_response(req: QueryRequest, route: Any) -> AsyncIterator[str]:
 # ── /ingest ───────────────────────────────────────────────────
 
 @app.post("/ingest", response_model=IngestResponse, tags=["Ingestion"])
-async def ingest(file: UploadFile = File(...)):
+async def ingest(
+    file: UploadFile = File(...),
+    workspace_id: str = Form("default")
+):
     """
     Ingest a single file: extract → normalise → chunk → embed → store.
     Also writes structured data (invoices, ledger rows) to SQLite.
@@ -365,7 +402,7 @@ async def ingest(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        return await _ingest_file_path(tmp_path, original_name=file.filename or "unknown")
+        return await _ingest_file_path(tmp_path, original_name=file.filename or "unknown", workspace_id=workspace_id)
     finally:
         try:
             os.remove(tmp_path)
@@ -374,16 +411,19 @@ async def ingest(file: UploadFile = File(...)):
 
 
 @app.post("/ingest_path", response_model=IngestResponse, tags=["Ingestion"])
-async def ingest_path(path: str = Query(..., description="Absolute path to file on disk")):
+async def ingest_path(
+    path: str = Query(..., description="Absolute path to file on disk"),
+    workspace_id: str = Query("default", description="Workspace/session ID")
+):
     """
     Ingest a file by path (for server-side use, e.g. CLI or sync daemon).
     """
     if not Path(path).exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
-    return await _ingest_file_path(path, original_name=Path(path).name)
+    return await _ingest_file_path(path, original_name=Path(path).name, workspace_id=workspace_id)
 
 
-async def _ingest_file_path(file_path: str, original_name: str) -> IngestResponse:
+async def _ingest_file_path(file_path: str, original_name: str, workspace_id: str = "default") -> IngestResponse:
     """Core ingestion logic, shared by /ingest and /ingest_path."""
     normalizer = _get_normalizer()
     chunker = _get_chunker()
@@ -405,6 +445,9 @@ async def _ingest_file_path(file_path: str, original_name: str) -> IngestRespons
         source_types.add(doc.source_type)
 
         # Write structured data to SQLite for invoices/tabular Excel
+        if doc.structured_data:
+            doc.structured_data["workspace_id"] = workspace_id
+
         if doc.source_type == "invoice" and doc.structured_data:
             db.upsert_invoice(
                 doc_id=doc.doc_id,
@@ -433,7 +476,7 @@ async def _ingest_file_path(file_path: str, original_name: str) -> IngestRespons
         embeddings = embedder.encode(texts)
 
         for chunk, embedding in zip(chunks, embeddings):
-            all_chunks.append({
+            chunk_dict = {
                 "chunk_id": chunk.chunk_id,
                 "text": chunk.text,
                 "embedding": embedding,
@@ -444,17 +487,38 @@ async def _ingest_file_path(file_path: str, original_name: str) -> IngestRespons
                     "title": doc.title,
                     "chunk_index": chunk.chunk_index,
                     "total_chunks": chunk.total_chunks,
+                    "workspace_id": workspace_id,
                 },
-            })
+            }
+            all_chunks.append(chunk_dict)
 
-    if all_chunks:
-        vs.add(all_chunks)
+        if all_chunks:
+            vs.add(all_chunks)
+
+        # KG Extraction
+        if doc.text.strip():
+            logger.info(f"Extracting KG for {original_name}")
+            kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
+            edges = await extract_kg_relationships(doc.text, model=kg_model, host=_OLLAMA_HOST)
+            if edges:
+                db.upsert_kg_edges(edges, source_doc=original_name, workspace_id=workspace_id)
 
     return IngestResponse(
+        status="ok",
+        file_name=original_name,
         doc_count=doc_count,
         chunk_count=len(all_chunks),
-        source_types=sorted(source_types),
+        source_types=list(source_types),
     )
+
+
+# ── /knowledge_graph ──────────────────────────────────────────
+
+@app.get("/knowledge_graph", tags=["Knowledge Graph"])
+async def get_knowledge_graph(workspace_id: str = Query("default")):
+    """Returns the extracted Knowledge Graph nodes and edges."""
+    db = _get_struct_db()
+    return db.get_knowledge_graph(workspace_id=workspace_id)
 
 
 # ── /prompt_preview ───────────────────────────────────────────
