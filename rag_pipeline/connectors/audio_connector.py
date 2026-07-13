@@ -23,7 +23,7 @@ from .base import envelope, make_source_id
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".aac"}
+SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".mp4"}
 
 
 # ── Helpers ──────────────────────────────────────────────────

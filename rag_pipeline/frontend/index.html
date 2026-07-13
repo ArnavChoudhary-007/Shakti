@@ -1535,7 +1535,8 @@
     document.getElementById('summaryUploaded').textContent = `UPLOADED ${succeeded} OF ${total} FILES`;
     document.getElementById('summaryFailed').textContent = `${failed} FAILURES`;
     document.getElementById('summaryActive').textContent = `${active} ACTIVE`;
-    document.getElementById('workspaceBadge').textContent = '💬 ' + currentWorkspace;
+    const badge = document.getElementById('workspaceBadge');
+    if (badge) badge.textContent = '💬 ' + currentWorkspace;
   }
 
   function showUploadPanel() {

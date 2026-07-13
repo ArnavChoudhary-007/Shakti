@@ -61,6 +61,7 @@ EXTENSION_MAP: Dict[str, str] = {
     ".ogg": "audio",
     ".opus": "audio",
     ".aac": "audio",
+    ".mp4": "audio",
     ".png": "invoice",
     ".jpg": "invoice",
     ".jpeg": "invoice",
