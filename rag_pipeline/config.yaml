@@ -16,13 +16,13 @@ vector_store:
   chroma_persist_dir: "./chroma_db"
   faiss_index_path: "./faiss_index/index.faiss"
   collection_name: "rag_chunks"
-  similarity_threshold: 0.75         # Vector guard minimum threshold
+  similarity_threshold: 0.0         # Vector guard minimum threshold
 
 # ── Ollama ───────────────────────────────────────────────────
 ollama:
   host: "http://localhost:11434"
-  default_text_model: "llama3.2"     # overridable per-request
-  grader_model: "llama3.2"           # fast model for algorithmic grader
+  default_text_model: "llama3.2:1b"     # overridable per-request
+  grader_model: "llama3.2:1b"           # fast model for algorithmic grader
   default_vision_model: "llava"      # multimodal / vision model
   request_timeout: 300               # seconds
 

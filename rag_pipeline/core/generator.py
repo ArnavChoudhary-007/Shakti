@@ -180,7 +180,14 @@ class Generator:
         if not chunks:
             return False
         
-        context = "\n".join([c.get("text", "") for c in chunks])
+        context_parts = []
+        for c in chunks:
+            meta = c.get("metadata", {})
+            file_name = meta.get("file_name", "unknown")
+            source_type = meta.get("source_type", "unknown")
+            text = c.get("text", "")
+            context_parts.append(f"[File: {file_name} | Type: {source_type}]\n{text}")
+        context = "\n\n".join(context_parts)
         prompt = (
             "Evaluate if the following context contains the answer to the user's query. "
             "Output EXACTLY 'True' if it does, and 'False' if it does not. Do not output anything else.\n\n"
