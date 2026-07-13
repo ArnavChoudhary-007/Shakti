@@ -166,6 +166,7 @@ class QueryResponse(BaseModel):
     model: str
     used_sql: bool
     route_reason: str
+    structure: Optional[Dict[str, Any]] = None
 
 
 class IngestResponse(BaseModel):
@@ -307,6 +308,7 @@ async def _handle_vector_query(req: QueryRequest, route: Any) -> QueryResponse:
         model=result.model,
         used_sql=False,
         route_reason=route.reason,
+        structure=result.structure,
     )
 
 
@@ -373,7 +375,7 @@ async def _stream_response(req: QueryRequest, route: Any) -> AsyncIterator[str]:
         return
     async for token in gen.generate_stream(req.query, chunks, model=req.model):
         if token.startswith("\n__CITATIONS__:"):
-            # Strip prefix and send as a special event
+            # Strip prefix and send as a special event (includes citations + structure)
             payload = token[len("\n__CITATIONS__:"):]
             yield f"event: citations\ndata: {payload}\n\n"
         else:

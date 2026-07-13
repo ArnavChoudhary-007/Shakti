@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     /* ── Design tokens ─────────────────────────────────── */
     :root {
@@ -316,6 +317,42 @@
     .bubble-content {}
     .streaming-cursor::after { content: '▋'; animation: blink 0.8s infinite; color: var(--accent); }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* ── Markdown & Jump-list ───────────────────────────── */
+    .markdown-body h2, .markdown-body h3 {
+      font-size: 15px; font-weight: 700;
+      margin-top: 16px; margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+    .markdown-body p { margin-bottom: 10px; }
+    .markdown-body p:last-child { margin-bottom: 0; }
+    .markdown-body ul, .markdown-body ol {
+      margin-top: 6px; margin-bottom: 12px;
+      padding-left: 20px;
+    }
+    .markdown-body li { margin-bottom: 4px; }
+    .cite-pill {
+      color: var(--accent);
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 10px;
+      margin-left: 2px;
+    }
+    .answer-jumplist {
+      display: flex; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 12px; padding-bottom: 12px;
+      border-bottom: 1px dashed var(--border);
+    }
+    .jumplist-item {
+      font-size: 12px; font-weight: 600;
+      background: var(--bg-input);
+      color: var(--text-secondary);
+      padding: 4px 10px;
+      border-radius: 12px;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    .jumplist-item:hover { background: var(--border); color: var(--text-primary); }
 
     /* ── Citations ───────────────────────────────────────── */
     .citations {
@@ -1211,7 +1248,7 @@
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
-    renderAnswer(aiMsg, d.answer, d.citations, d.used_sql, d.route_reason);
+    renderAnswer(aiMsg, d.answer, d.citations, d.used_sql, d.route_reason, d.structure || {});
     chatHistory.push({ role: "ai", content: d.answer });
   }
 
@@ -1256,11 +1293,11 @@
         }
       }
     }
-    renderAnswer(aiMsg, fullText, citations, false, 'streaming');
+    renderAnswer(aiMsg, fullText, citations, false, 'streaming', citationStructure);
     chatHistory.push({ role: "ai", content: fullText });
   }
 
-  function renderAnswer(aiMsg, answer, citations, usedSql, routeReason) {
+  function renderAnswer(aiMsg, answer, citations, usedSql, routeReason, structure) {
     const bubble = aiMsg.querySelector('.bubble');
     bubble.innerHTML = '';
 
@@ -1270,31 +1307,68 @@
     badge.textContent = usedSql ? '⚡ SQL' : '🔍 Vector';
     bubble.appendChild(badge);
 
-    // Answer with [N] references highlighted
+    // Normalise answer
     let processedAnswer = answer;
     if (processedAnswer.toLowerCase().includes("not found")) {
       processedAnswer = "not found in the documents";
     }
-    
-    // 1. Determine unique citations for mapping
+
+    // 1. Determine unique citations used (operate on raw text, before markdown)
     const uniqueCitations = [];
-    const regex = /\[(\d+)\]/g;
+    const citRegex = /\[(\d+)\]/g;
     let match;
-    while ((match = regex.exec(processedAnswer)) !== null) {
+    while ((match = citRegex.exec(processedAnswer)) !== null) {
       const idx = parseInt(match[1]);
       if (!uniqueCitations.includes(idx)) uniqueCitations.push(idx);
     }
 
+    // 2. Replace [N] with superscript pills on raw text
+    const withPills = processedAnswer.replace(/\[(\d+)\]/g, (m, p1) => {
+      const oldIdx = parseInt(p1);
+      const newIdx = uniqueCitations.indexOf(oldIdx) + 1;
+      return `<sup class="cite-pill" title="See citation ${newIdx}">[${newIdx}]</sup>`;
+    });
+
+    // 3. Optional jump-list nav for multi-section answers
+    const struct = structure || {};
+    if (struct.has_headers && !processedAnswer.toLowerCase().includes("not found")) {
+      const headings = [];
+      const hRe = /^#{2,3}\s+(.+)$/gm;
+      let hm;
+      while ((hm = hRe.exec(processedAnswer)) !== null) headings.push(hm[1].trim());
+      if (headings.length > 1) {
+        const nav = document.createElement('nav');
+        nav.className = 'answer-jumplist';
+        nav.innerHTML = headings.map((h, i) =>
+          `<a class="jumplist-item" href="#section-${i}">${h}</a>`
+        ).join('');
+        bubble.appendChild(nav);
+      }
+    }
+
+    // 4. Render markdown (marked.js) — adds <h2>, <ul>, <strong>, etc.
     const content = document.createElement('div');
-    content.className = 'bubble-content';
+    content.className = 'bubble-content markdown-body';
     if (!processedAnswer.toLowerCase().includes("not found")) {
-        content.innerHTML = processedAnswer.replace(/\[(\d+)\]/g, (m, p1) => {
-          const oldIdx = parseInt(p1);
-          const newIdx = uniqueCitations.indexOf(oldIdx) + 1;
-          return `<sup style="color:var(--accent);font-weight:700;cursor:pointer" title="See citation ${newIdx}">[${newIdx}]</sup>`;
-        });
+      // marked.parse on the pill-substituted text
+      // We temporarily swap pills to a placeholder so marked doesn't mangle <sup>
+      const PILL_RE = /<sup class="cite-pill"[^>]*>\[(\d+)\]<\/sup>/g;
+      const pills = [];
+      const safePillText = withPills.replace(PILL_RE, (m) => {
+        pills.push(m);
+        return `%%PILL${pills.length - 1}%%`;
+      });
+      const rendered = (typeof marked !== 'undefined')
+        ? marked.parse(safePillText)
+        : safePillText.replace(/\n/g, '<br>');
+      // Restore pills
+      const restored = rendered.replace(/%%PILL(\d+)%%/g, (m, i) => pills[parseInt(i)] || m);
+      // Add section IDs for jump-list anchors
+      let secIdx = 0;
+      content.innerHTML = restored.replace(/<(h[23])(>| )/g, (m, tag, rest) =>
+        `<${tag} id="section-${secIdx++}"${rest}`);
     } else {
-        content.innerHTML = processedAnswer;
+      content.innerHTML = escHtml(processedAnswer);
     }
     bubble.appendChild(content);
 
@@ -1351,20 +1425,34 @@
   function setMessageText(msgEl, text, streaming = false) {
     const content = msgEl.querySelector('.bubble-content');
     if (content) {
-      let processed = text;
-      const uniqueCitations = [];
-      const regex = /\[(\d+)\]/g;
-      let match;
-      while ((match = regex.exec(processed)) !== null) {
-         const idx = parseInt(match[1]);
-         if (!uniqueCitations.includes(idx)) uniqueCitations.push(idx);
+      if (typeof marked !== 'undefined' && !text.toLowerCase().includes('not found')) {
+        // Renumber and create pills on the raw text
+        const uniqueCitations = [];
+        const citRegex = /\[(\d+)\]/g;
+        let match;
+        while ((match = citRegex.exec(text)) !== null) {
+          const idx = parseInt(match[1]);
+          if (!uniqueCitations.includes(idx)) uniqueCitations.push(idx);
+        }
+        
+        const withPills = text.replace(/\[(\d+)\]/g, (m, p1) => {
+          const oldIdx = parseInt(p1);
+          const newIdx = uniqueCitations.indexOf(oldIdx) + 1;
+          return `<sup class="cite-pill">[${newIdx}]</sup>`;
+        });
+        
+        const PILL_RE = /<sup class="cite-pill"[^>]*>\[(\d+)\]<\/sup>/g;
+        const pills = [];
+        const safePillText = withPills.replace(PILL_RE, (m) => {
+          pills.push(m);
+          return `%%PILL${pills.length - 1}%%`;
+        });
+        
+        const rendered = marked.parse(safePillText);
+        content.innerHTML = rendered.replace(/%%PILL(\d+)%%/g, (m, i) => pills[parseInt(i)] || m);
+      } else {
+        content.textContent = text;
       }
-      processed = processed.replace(/\[(\d+)\]/g, (m, p1) => {
-         const oldIdx = parseInt(p1);
-         const newIdx = uniqueCitations.indexOf(oldIdx) + 1;
-         return `[${newIdx}]`;
-      });
-      content.textContent = processed;
       if (streaming) content.classList.add('streaming-cursor');
       else content.classList.remove('streaming-cursor');
     }

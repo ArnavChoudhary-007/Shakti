@@ -42,62 +42,85 @@ class CitationResult:
     citations: List[Citation] = field(default_factory=list)
     model: str = ""
     used_sql: bool = False               # True if answer came from structured DB
+    structure: Dict[str, bool] = field(default_factory=dict)  # has_headers, has_bullets
 
 
 # ── Prompt builder ────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """\
-You are a precise extraction engine. Your sole purpose is to extract answers \
-using ONLY the provided context. You are explicitly FORBIDDEN from using \
-any external knowledge or prior training data.
+You are an expert research assistant. You answer questions using ONLY the
+numbered sources provided. You are FORBIDDEN from using any external knowledge.
 
-Rules:
-- Cite every statement with square brackets, e.g., [1] or [1][2].
-- If the answer is not contained entirely within the provided sources, you MUST \
-output EXACTLY and ONLY: "Not found in documents."
-- Do NOT explain, elaborate, or add any other words if the answer is not found.
-- Do NOT cite sources that are irrelevant.
-- Be concise and direct.
+Formatting rules — follow them exactly:
+1. Start with a direct 1-2 sentence answer to the question.
+2. Follow with supporting detail in short paragraphs OR bullet points
+   (use bullets when listing multiple items, steps, or comparisons;
+   use short paragraphs for narrative or explanatory content).
+3. Use a markdown header (## or ###) to break up sections ONLY if the
+   answer covers more than one distinct sub-topic. Do NOT add headers
+   for a short, single-topic answer.
+4. Bold key terms, names, figures, or dates the user would want to scan
+   quickly, e.g. **Indian Ocean**, **$4,200**, **March 14**.
+5. Cite every factual claim with its source number immediately after the
+   claim, e.g. [1] or [1][2]. Do NOT bunch citations at the end of a
+   paragraph.
+6. If sources disagree, say so explicitly.
+7. If the answer is not in the sources, output EXACTLY and ONLY:
+   Not found in documents.
+   Do not add any other words.
+8. Do NOT add a "Sources" section — that is generated separately.
+9. Do NOT restate these instructions in your answer.
 """
 
 
 def _build_prompt(query: str, chunks: List[Dict[str, Any]]) -> str:
     """
-    Build the prompt with numbered source blocks visible to the model.
-    Each source shows its citation metadata so the model can describe
-    where it came from when asked.
+    Build the Perplexity-style prompt with numbered source blocks.
+    Each block shows file name, location, and source type so the model
+    can produce precise inline citations.
     """
-    source_lines: List[str] = []
+    source_parts: List[str] = []
     for i, chunk in enumerate(chunks, start=1):
         meta = chunk.get("metadata", {})
         file_name = meta.get("file_name", "unknown")
-        location = meta.get("page_or_timestamp", "")
+        location = meta.get("page_or_timestamp", "") or "—"
         sender = meta.get("sender", "")
         source_type = meta.get("source_type", "")
         text = chunk.get("text", "").strip()
 
-        header_parts = [f"[{i}] {file_name}"]
-        if location:
-            header_parts.append(location)
-        if sender:
-            header_parts.append(f"({sender})")
+        meta_parts = [f"File: {file_name}", f"Location: {location}"]
         if source_type:
-            header_parts.append(f"[{source_type}]")
+            meta_parts.append(f"Type: {source_type}")
+        if sender:
+            meta_parts.append(f"Sender: {sender}")
 
-        source_lines.append(" | ".join(header_parts))
-        source_lines.append(text)
-        source_lines.append("")
+        source_parts.append(
+            f"[{i}] {' | '.join(meta_parts)}\n{text}"
+        )
 
-    sources_block = "\n".join(source_lines)
+    numbered_context = "\n\n".join(source_parts)
 
     return (
-        f"SOURCES:\n"
-        f"{'=' * 60}\n"
-        f"{sources_block}"
-        f"{'=' * 60}\n\n"
-        f"QUESTION: {query}\n\n"
-        f"ANSWER (cite every claim with [N]):"
+        f"Sources:\n"
+        f"{'-' * 60}\n"
+        f"{numbered_context}\n"
+        f"{'-' * 60}\n\n"
+        f"Question: {query}\n\n"
+        f"Answer:"
     )
+
+
+# ── Structure analysis ────────────────────────────────────────
+
+def analyze_structure(answer_text: str) -> Dict[str, bool]:
+    """
+    Detect whether the model's response contains markdown headers or
+    bullet lists. Used by the frontend to decide whether to render a
+    jump-list nav above the answer.
+    """
+    has_headers = bool(re.search(r"^#{2,3}\s", answer_text, re.MULTILINE))
+    has_bullets = bool(re.search(r"^[-*]\s", answer_text, re.MULTILINE))
+    return {"has_headers": has_headers, "has_bullets": has_bullets}
 
 
 # ── Citation extraction ───────────────────────────────────────
@@ -266,9 +289,10 @@ class Generator:
             yield f"\n[Error connecting to Ollama: {e}]"
             return
 
-        # Post-process citations and yield as sentinel
+        # Post-process citations + structure and yield as sentinel
         answer_text = "".join(full_answer)
         citations = _extract_citations(answer_text, chunks)
+        structure = analyze_structure(answer_text)
         citations_payload = {
             "citations": [
                 {
@@ -280,7 +304,8 @@ class Generator:
                     "sender": c.sender,
                 }
                 for c in citations
-            ]
+            ],
+            "structure": structure,
         }
         yield f"\n__CITATIONS__:{json.dumps(citations_payload)}"
 
@@ -320,11 +345,13 @@ class Generator:
             full_answer = f"[Error connecting to Ollama: {e}]"
 
         citations = _extract_citations(full_answer, chunks)
+        structure = analyze_structure(full_answer)
         return CitationResult(
             answer=full_answer,
             citations=citations,
             model=resolved_model,
             used_sql=used_sql,
+            structure=structure,
         )
 
     # ── Contextualize Query ───────────────────────────────────
@@ -440,6 +467,7 @@ class Generator:
 
         answer_text = "".join(full_answer)
         citations = _extract_citations(answer_text, chunks)
+        structure = analyze_structure(answer_text)
         citations_payload = {
             "citations": [
                 {
@@ -451,7 +479,8 @@ class Generator:
                     "sender": c.sender,
                 }
                 for c in citations
-            ]
+            ],
+            "structure": structure,
         }
         yield f"\n__CITATIONS__:{json.dumps(citations_payload)}"
 
