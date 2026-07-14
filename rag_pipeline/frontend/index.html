@@ -821,6 +821,23 @@
     .btn-primary:hover { filter: brightness(1.1); }
     .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); }
     .btn-ghost:hover { border-color: var(--border-active); color: var(--text-primary); }
+
+    /* ── Citation Viewer Modal ─────────────────────────────────────────── */
+    .cv-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; }
+    .cv-panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 600px; max-width: 90vw; max-height: 85vh; background: var(--bg-surface); border-radius: 12px; z-index: 1001; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; }
+    .cv-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--bg-app); }
+    .cv-header-info { display: flex; align-items: center; gap: 12px; overflow: hidden; }
+    .cv-filename { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary); }
+    .cv-actions { display: flex; align-items: center; gap: 16px; }
+    .cv-nav { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+    .cv-nav button { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; cursor: pointer; color: var(--text-primary); font-family: 'Inter', sans-serif; }
+    .cv-nav button:disabled { opacity: 0.3; cursor: not-allowed; }
+    .cv-close { background: none; border: none; font-size: 20px; color: var(--text-muted); cursor: pointer; padding: 0 4px; line-height: 1; }
+    .cv-close:hover { color: var(--text-primary); }
+    .cv-body { padding: 20px; overflow-y: auto; font-size: 14px; line-height: 1.6; color: var(--text-primary); font-family: 'Inter', sans-serif; }
+    .cv-text { white-space: pre-wrap; }
+    .cv-text.markdown-body { white-space: normal; }
+    .cv-location { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
   </style>
 </head>
 <body>
@@ -1008,6 +1025,31 @@
       </div>
     </div>
   </main>
+
+  <!-- ── Citation Viewer Modal ─────────────────────────────────── -->
+  <div id="citationViewer" class="hidden">
+    <div class="cv-overlay" onclick="closeCitationViewer()"></div>
+    <div class="cv-panel">
+      <div class="cv-header">
+        <div class="cv-header-info">
+          <span id="cvBadge" class="source-tag"></span>
+          <span id="cvFileName" class="cv-filename"></span>
+        </div>
+        <div class="cv-actions">
+          <div class="cv-nav" id="cvNav">
+            <button onclick="navCitation(-1)" id="cvPrev">←</button>
+            <span id="cvCount">1 of 1</span>
+            <button onclick="navCitation(1)" id="cvNext">→</button>
+          </div>
+          <button class="cv-close" onclick="closeCitationViewer()">×</button>
+        </div>
+      </div>
+      <div class="cv-body">
+        <div id="cvLocation" class="cv-location"></div>
+        <div id="cvText" class="cv-text"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1266,6 +1308,8 @@
     let buffer = '';
     let fullText = '';
     let citations = [];
+    let citationStructure = {};
+    let nextIsCitationData = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1275,12 +1319,23 @@
       buffer = lines.pop();
 
       for (const line of lines) {
-        if (line.startsWith('event: citations')) continue;
+        if (line.startsWith('event: citations')) {
+          nextIsCitationData = true;
+          continue;
+        }
         if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') { break; }
-          if (data.startsWith('{') && data.includes('"citations"')) {
-            try { citations = JSON.parse(data).citations; } catch {}
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') break;
+
+          if (nextIsCitationData || (data.startsWith('{') && data.includes('"citations"'))) {
+            nextIsCitationData = false;
+            try {
+              const parsed = JSON.parse(data);
+              citations = parsed.citations || [];
+              citationStructure = parsed.structure || {};
+            } catch (e) {
+              console.warn('Failed to parse citations payload:', e);
+            }
           } else {
             const token = data.replace(/\\n/g, '\n');
             fullText += token;
@@ -1311,6 +1366,12 @@
     let processedAnswer = answer;
     if (processedAnswer.toLowerCase().includes("not found")) {
       processedAnswer = "not found in the documents";
+    } else {
+      // Strip out any "Sources:" or "References:" section that the LLM generated in its text
+      const sourcesMatch = processedAnswer.match(/\n(?:#+\s*)?(?:Sources|References|Citations):\s*\n/i);
+      if (sourcesMatch) {
+        processedAnswer = processedAnswer.substring(0, sourcesMatch.index).trim();
+      }
     }
 
     // 1. Determine unique citations used (operate on raw text, before markdown)
@@ -1374,19 +1435,27 @@
 
     // Citations
     if (citations && citations.length > 0) {
-      const mappedCitations = citations
+      let mappedCitations = citations
         .filter(c => uniqueCitations.includes(c.index))
         .map(c => ({ ...c, index: uniqueCitations.indexOf(c.index) + 1 }))
         .sort((a, b) => a.index - b.index);
 
+      // If the model didn't use any [N] markers but citations were provided (e.g. via fallback),
+      // keep them so they can be accessed programmatically, even though there are no pills.
+      if (mappedCitations.length === 0 && uniqueCitations.length === 0) {
+         mappedCitations = citations;
+      }
+
       if (mappedCitations.length > 0) {
+        bubble._citations = mappedCitations;
         const citDiv = document.createElement('div');
         citDiv.className = 'citations';
         citDiv.innerHTML = '<div class="citations-label">Sources</div>';
         mappedCitations.forEach(c => {
         const tagClass = 'tag-' + (c.source_type || 'pdf');
+        const previewText = c.full_text ? (c.full_text.length > 200 ? c.full_text.substring(0, 200) + '...' : c.full_text) : (c.snippet || '');
         citDiv.innerHTML += `
-          <div class="citation-card">
+          <div class="citation-card" onclick="openCitationViewer(this.closest('.bubble')._citations, ${c.index})">
             <div class="citation-num">${c.index}</div>
             <div class="citation-body">
               <div class="citation-file">
@@ -1395,7 +1464,7 @@
                 ${c.sender ? `<span style="color:var(--text-muted)"> · ${escHtml(c.sender)}</span>` : ''}
               </div>
               <div class="citation-location">${escHtml(c.location)}</div>
-              ${c.snippet ? `<div class="citation-snippet">${escHtml(c.snippet)}</div>` : ''}
+              ${previewText ? `<div class="citation-snippet">${escHtml(previewText)}</div>` : ''}
             </div>
           </div>`;
       });
@@ -1786,6 +1855,69 @@
   document.getElementById('modelSelect').addEventListener('change', function() {
     selectedModel = this.value;
   });
+
+  // ── Citation Viewer Logic ────────────────────────────────
+  let cvCitations = [];
+  let cvCurrentIndex = 0;
+
+  document.getElementById('chatContainer').addEventListener('click', (e) => {
+    const pill = e.target.closest('.cite-pill');
+    if (pill) {
+      const titleMatch = pill.getAttribute('title').match(/\d+/);
+      const idx = titleMatch ? parseInt(titleMatch[0]) : parseInt(pill.textContent.replace(/\D/g, ''));
+      const bubble = pill.closest('.bubble');
+      if (bubble && bubble._citations) {
+         openCitationViewer(bubble._citations, idx);
+      }
+    }
+  });
+
+  function openCitationViewer(citations, citationIndex) {
+    if (!citations || citations.length === 0) return;
+    cvCitations = citations;
+    const arrayIndex = citations.findIndex(c => c.index === citationIndex);
+    cvCurrentIndex = arrayIndex >= 0 ? arrayIndex : 0;
+    renderCitationViewer();
+    document.getElementById('citationViewer').classList.remove('hidden');
+  }
+
+  function closeCitationViewer() {
+    document.getElementById('citationViewer').classList.add('hidden');
+  }
+
+  function navCitation(step) {
+    cvCurrentIndex += step;
+    if (cvCurrentIndex < 0) cvCurrentIndex = 0;
+    if (cvCurrentIndex >= cvCitations.length) cvCurrentIndex = cvCitations.length - 1;
+    renderCitationViewer();
+  }
+
+  function renderCitationViewer() {
+    if (!cvCitations.length) return;
+    const cit = cvCitations[cvCurrentIndex];
+    const tagClass = 'tag-' + (cit.source_type || 'pdf');
+    const badge = document.getElementById('cvBadge');
+    badge.className = 'source-tag ' + tagClass;
+    badge.textContent = cit.source_type || 'doc';
+    
+    document.getElementById('cvFileName').textContent = cit.file_name + (cit.sender ? ` (from ${cit.sender})` : '');
+    document.getElementById('cvLocation').textContent = cit.location || 'Location unavailable';
+    
+    const cvTextEl = document.getElementById('cvText');
+    cvTextEl.className = 'cv-text markdown-body';
+    const textToShow = cit.full_text || cit.snippet || 'Text unavailable';
+    if (typeof marked !== 'undefined') {
+      cvTextEl.innerHTML = marked.parse(textToShow);
+    } else {
+      cvTextEl.textContent = textToShow;
+    }
+    
+    document.getElementById('cvCount').textContent = `${cvCurrentIndex + 1} of ${cvCitations.length}`;
+    document.getElementById('cvPrev').disabled = (cvCurrentIndex === 0);
+    document.getElementById('cvNext').disabled = (cvCurrentIndex === cvCitations.length - 1);
+    
+    document.getElementById('cvNav').style.display = cvCitations.length > 1 ? 'flex' : 'none';
+  }
 
   // ── Init ─────────────────────────────────────────────────
   checkHealth();

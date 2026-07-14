@@ -31,7 +31,7 @@ class Citation:
     index: int            # the [N] number used in the answer text
     file_name: str        # e.g. "report.pdf"
     location: str         # e.g. "page 3 of 20" or "00:02:15–00:03:40"
-    snippet: str          # first 200 chars of the source chunk
+    full_text: str        # complete text of the source chunk
     source_type: str = ""
     sender: Optional[str] = None
 
@@ -149,18 +149,40 @@ def _extract_citations(
         chunk = chunks[chunk_pos]
         meta = chunk.get("metadata", {})
         text = chunk.get("text", "")
-        snippet = text[:250].strip()
-        if len(text) > 250:
-            snippet += "…"
+        
+        source_type = meta.get("source_type", "")
+        sender = meta.get("sender") or None
+        if source_type in ("pdf", "docx", "pptx", "excel", "csv"):
+            sender = None
 
         citations.append(Citation(
             index=idx,
             file_name=meta.get("file_name", "unknown"),
-            location=meta.get("page_or_timestamp", ""),
-            snippet=snippet,
-            source_type=meta.get("source_type", ""),
-            sender=meta.get("sender") or None,
+            location=meta.get("location_label", ""),
+            full_text=text.strip(),
+            source_type=source_type,
+            sender=sender,
         ))
+
+    # Fallback: if the model didn't include any [N] markers (common with small models),
+    # auto-cite all retrieved chunks so the Sources panel is never empty.
+    if not citations and "not found" not in answer.lower():
+        logger.debug("No [N] markers found in answer — falling back to auto-citing all retrieved chunks")
+        for i, chunk in enumerate(chunks, start=1):
+            meta = chunk.get("metadata", {})
+            text = chunk.get("text", "")
+            source_type = meta.get("source_type", "")
+            sender = meta.get("sender") or None
+            if source_type in ("pdf", "docx", "pptx", "excel", "csv"):
+                sender = None
+            citations.append(Citation(
+                index=i,
+                file_name=meta.get("file_name", "unknown"),
+                location=meta.get("location_label", ""),
+                full_text=text.strip(),
+                source_type=source_type,
+                sender=sender,
+            ))
 
     return citations
 
@@ -299,7 +321,7 @@ class Generator:
                     "index": c.index,
                     "file_name": c.file_name,
                     "location": c.location,
-                    "snippet": c.snippet,
+                    "full_text": c.full_text,
                     "source_type": c.source_type,
                     "sender": c.sender,
                 }
