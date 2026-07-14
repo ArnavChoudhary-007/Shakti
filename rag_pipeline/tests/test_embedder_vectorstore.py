@@ -43,23 +43,23 @@ def _make_chunks(embedder: Embedder, texts_meta: list) -> list:
 SAMPLE_TEXTS = [
     ("Acme Corp invoiced $5,000 for software licenses in January 2024.",
      {"doc_id": "doc_001", "source_type": "invoice", "file_name": "inv001.pdf",
-      "file_path": "/invoices/inv001.pdf", "page_or_timestamp": "invoice INV-001",
+      "file_path": "/invoices/inv001.pdf", "location_label": "invoice INV-001",
       "sender": "Acme Corp", "title": "Invoice from Acme Corp #INV-001"}),
     ("The Q4 earnings report shows revenue grew 15% year-over-year.",
      {"doc_id": "doc_002", "source_type": "pdf", "file_name": "q4_report.pdf",
-      "file_path": "/docs/q4_report.pdf", "page_or_timestamp": "page 3 of 20",
+      "file_path": "/docs/q4_report.pdf", "location_label": "page 3 of 20",
       "sender": "Finance Dept", "title": "Q4 Earnings Report — page 3"}),
     ("Alice: Did you approve the payment to Beta Ltd? Bob: Yes, processed yesterday.",
      {"doc_id": "doc_003", "source_type": "whatsapp", "file_name": "chat.txt",
-      "file_path": "/exports/chat.txt", "page_or_timestamp": "msg 5 at 1/15/2024 10:05 AM",
+      "file_path": "/exports/chat.txt", "location_label": "msg 5 at 1/15/2024 10:05 AM",
       "sender": "Alice", "title": "WhatsApp: chat.txt"}),
     ("Vendor Beta Ltd has an outstanding balance of $12,500 due February 2024.",
      {"doc_id": "doc_004", "source_type": "excel", "file_name": "ledger.xlsx",
-      "file_path": "/data/ledger.xlsx", "page_or_timestamp": "sheet: Payments",
+      "file_path": "/data/ledger.xlsx", "location_label": "sheet: Payments",
       "sender": None, "title": "ledger.xlsx — Payments"}),
     ("The CEO discussed international expansion plans in the Q1 strategy meeting.",
      {"doc_id": "doc_005", "source_type": "audio", "file_name": "meeting.mp3",
-      "file_path": "/calls/meeting.mp3", "page_or_timestamp": "00:05:12-00:07:45",
+      "file_path": "/calls/meeting.mp3", "location_label": "00:05:12-00:07:45",
       "sender": "SPEAKER_00", "title": "meeting.mp3 — SPEAKER_00 at 00:05:12"}),
 ]
 
@@ -111,7 +111,7 @@ def _run_store_tests(store, chunks: list, label: str) -> None:
     assert "metadata" in results[0]
     assert "score" in results[0]
     assert results[0]["metadata"]["file_name"], "%s: file_name missing from metadata" % label
-    assert results[0]["metadata"]["page_or_timestamp"], "%s: page_or_timestamp missing" % label
+    assert results[0]["metadata"]["location_label"], "%s: location_label missing" % label
     print("  [PASS] %s query(): top result = %r (score=%.3f)" % (
         label, results[0]["metadata"]["file_name"], results[0]["score"]
     ))

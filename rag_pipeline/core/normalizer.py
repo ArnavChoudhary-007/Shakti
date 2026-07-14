@@ -26,7 +26,7 @@ class CitationMeta(BaseModel):
     """Mandatory citation anchor — every document and chunk carries this."""
     file_name: str
     file_path: str
-    page_or_timestamp: str          # "page 3" | "slide 5" | "00:01:23–00:02:10" | "msg 4–13"
+    location_label: str          # "page 3" | "slide 5" | "00:01:23–00:02:10" | "msg 4–13"
     sender: Optional[str] = None    # for emails / chats
 
 
@@ -98,8 +98,7 @@ class Normalizer:
             citation_meta=CitationMeta(
                 file_name=meta["file_name"],
                 file_path=env.raw_path,
-                page_or_timestamp=f"page {page} of {total}",
-                sender=meta.get("author") or None,
+                location_label=f"page {page} of {total}",
             ),
         )
 
@@ -117,8 +116,7 @@ class Normalizer:
             citation_meta=CitationMeta(
                 file_name=meta["file_name"],
                 file_path=env.raw_path,
-                page_or_timestamp="full document",
-                sender=meta.get("author") or None,
+                location_label="full document",
             ),
         )
 
@@ -142,8 +140,7 @@ class Normalizer:
             citation_meta=CitationMeta(
                 file_name=meta["file_name"],
                 file_path=env.raw_path,
-                page_or_timestamp=f"slide {slide} of {total}",
-                sender=meta.get("author") or None,
+                location_label=f"slide {slide} of {total}",
             ),
         )
 
@@ -174,7 +171,7 @@ class Normalizer:
             citation_meta=CitationMeta(
                 file_name=file_name,
                 file_path=env.raw_path,
-                page_or_timestamp=f"sheet: {sheet}" if sheet else "full file",
+                location_label=f"sheet: {sheet}" if sheet else "full file",
             ),
         )
 
@@ -195,7 +192,7 @@ class Normalizer:
             citation_meta=CitationMeta(
                 file_name=meta["file_name"],
                 file_path=env.raw_path,
-                page_or_timestamp=f"message {msg_idx + 1} ({date_str})",
+                location_label=f"message {msg_idx + 1} ({date_str})",
                 sender=sender,
             ),
         )
@@ -241,7 +238,7 @@ class Normalizer:
             citation_meta=CitationMeta(
                 file_name=meta["file_name"],
                 file_path=env.raw_path,
-                page_or_timestamp=location,
+                location_label=location,
                 sender=sender,
             ),
         )
@@ -290,7 +287,7 @@ class Normalizer:
             citation_meta=CitationMeta(
                 file_name=meta["file_name"],
                 file_path=env.raw_path,
-                page_or_timestamp=f"invoice {inv_no}" if inv_no else "full document",
+                location_label=f"invoice {inv_no}" if inv_no else "full document",
                 sender=vendor or None,
             ),
         )
@@ -312,7 +309,7 @@ class Normalizer:
             citation_meta=CitationMeta(
                 file_name=meta["file_name"],
                 file_path=env.raw_path,
-                page_or_timestamp=ts_range or f"turn {turn_idx + 1}",
+                location_label=ts_range or f"turn {turn_idx + 1}",
                 sender=speaker,
             ),
         )
@@ -329,7 +326,7 @@ class Normalizer:
             citation_meta=CitationMeta(
                 file_name=meta.get("file_name", env.raw_path.split("/")[-1]),
                 file_path=env.raw_path,
-                page_or_timestamp="full document",
+                location_label="full document",
                 sender=meta.get("sender") or meta.get("author") or None,
             ),
         )

@@ -26,10 +26,10 @@ def assert_valid_chunks(chunks: list, label: str, min_count: int = 1) -> None:
         assert ch.text.strip(), f"{label}[{i}]: text is empty"
         assert ch.citation_meta, f"{label}[{i}]: citation_meta missing"
         assert ch.citation_meta["file_name"], f"{label}[{i}]: citation_meta.file_name missing"
-        assert ch.citation_meta["page_or_timestamp"], f"{label}[{i}]: citation_meta.page_or_timestamp missing"
+        assert ch.citation_meta["location_label"], f"{label}[{i}]: citation_meta.location_label missing"
         assert ch.chunk_index == i, f"{label}[{i}]: chunk_index mismatch"
         assert ch.total_chunks == len(chunks), f"{label}[{i}]: total_chunks mismatch"
-    print(f"  [PASS] {label}: {len(chunks)} chunk(s), citation={chunks[0].citation_meta['page_or_timestamp']!r}")
+    print(f"  [PASS] {label}: {len(chunks)} chunk(s), citation={chunks[0].citation_meta['location_label']!r}")
 
 
 def _make_doc(source_type: str, text: str, **kwargs):
@@ -54,7 +54,7 @@ def test_chunk_pdf_single_page():
     chunks = chunker.chunk(doc)
     assert_valid_chunks(chunks, "PDF (short, 1 chunk)", min_count=1)
     assert len(chunks) == 1
-    assert "page 1" in chunks[0].citation_meta["page_or_timestamp"]
+    assert "page 1" in chunks[0].citation_meta["location_label"]
 
 
 def test_chunk_pdf_long_page():
@@ -64,7 +64,7 @@ def test_chunk_pdf_long_page():
     chunks = chunker.chunk(doc)
     assert_valid_chunks(chunks, "PDF (long, multiple chunks)", min_count=2)
     for ch in chunks:
-        assert "page 3" in ch.citation_meta["page_or_timestamp"]
+        assert "page 3" in ch.citation_meta["location_label"]
 
 
 def test_chunk_docx():
@@ -74,7 +74,7 @@ def test_chunk_docx():
     chunks = chunker.chunk(doc)
     assert_valid_chunks(chunks, "DOCX", min_count=1)
     for ch in chunks:
-        assert "full document" in ch.citation_meta["page_or_timestamp"]
+        assert "full document" in ch.citation_meta["location_label"]
 
 
 def test_chunk_invoice():
@@ -125,7 +125,7 @@ def test_chunk_audio():
     chunks = chunker.chunk(doc)
     assert len(chunks) == 1
     assert_valid_chunks(chunks, "Audio (speaker turn)")
-    assert "00:02:25" in chunks[0].citation_meta["page_or_timestamp"]
+    assert "00:02:25" in chunks[0].citation_meta["location_label"]
 
 
 def test_chunk_excel_tabular():
@@ -157,7 +157,7 @@ def test_chunk_citation_meta_inherited():
     assert len(chunks) >= 2, "Need multiple chunks to test inheritance"
     for ch in chunks:
         assert ch.citation_meta["file_name"] == "pdf.file"
-        assert "page 7" in ch.citation_meta["page_or_timestamp"]
+        assert "page 7" in ch.citation_meta["location_label"]
         assert "CFO" in (ch.citation_meta.get("sender") or "")
 
 

@@ -81,14 +81,64 @@ def _refine_citation_meta(
     base_meta: Dict[str, Any],
     chunk_index: int,
     total_chunks: int,
+    doc: Any,
+    chunk_text: str,
     extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Clone the parent's citation_meta and annotate with chunk position.
-    The page_or_timestamp is preserved from the parent (it's already
-    page-specific for PDFs and slide-specific for PPTX).
+    Clone the parent's citation_meta and compute a precise location label.
     """
     refined = dict(base_meta)
+    
+    st = doc.source_type
+    loc = base_meta.get("location_label", "")
+    
+    # Calculate precise location label
+    if st == "pdf":
+        # Usually loc is "page 3 of 20"
+        if loc.startswith("page "):
+            page_num = loc.split(" ")[1]
+            refined["location_label"] = f"Page {page_num}"
+        else:
+            refined["location_label"] = loc
+    elif st in ("docx", "csv", "email", "mbox", "eml", "pst") or (st == "excel" and doc.structured_data is None) or st not in _SINGLE_CHUNK_TYPES | _CHAT_TYPES | _EXCEL_TYPES | _TEXT_SPLIT_TYPES:
+        # Text splits: calculate line numbers
+        start_char = doc.text.find(chunk_text)
+        if start_char != -1:
+            start_line = doc.text.count("\\n", 0, start_char) + 1
+            end_line = start_line + chunk_text.count("\\n")
+            if st == "excel":
+                # Fallback narrative excel
+                sheet = loc.replace("sheet: ", "") if "sheet: " in loc else loc
+                refined["location_label"] = f"Sheet '{sheet}', Rows {start_line}–{end_line}"
+            elif st in ("email", "mbox", "eml", "pst"):
+                sender = base_meta.get("sender") or "Unknown"
+                date_str = doc.created_at[:10] if doc.created_at else "Unknown date"
+                refined["location_label"] = f"Email from {sender}, {date_str}"
+            else:
+                refined["location_label"] = f"Lines {start_line}–{end_line}"
+    elif st == "excel" and doc.structured_data is not None:
+        sheet = loc.replace("sheet: ", "") if "sheet: " in loc else loc
+        refined["location_label"] = f"Sheet '{sheet}'"
+    elif st in ("whatsapp", "telegram", "slack", "teams"):
+        sender = base_meta.get("sender") or "Unknown"
+        # Extract timestamp from location string (e.g. "msg 1 at 2024-01-01 10:00" or "#channel at ts 1234")
+        ts = "Unknown time"
+        if " at ts " in loc:
+            ts = loc.split(" at ts ")[1]
+        elif " at " in loc:
+            ts = loc.split(" at ")[1]
+        refined["location_label"] = f"{sender}, {ts}"
+    elif st == "audio":
+        # loc is HH:MM:SS-HH:MM:SS
+        parts = loc.split("-")
+        if len(parts) == 2:
+            def trim_hours(t):
+                return t[3:] if t.startswith("00:") else t
+            refined["location_label"] = f"{trim_hours(parts[0])}–{trim_hours(parts[1])}"
+        else:
+            refined["location_label"] = loc
+
     if total_chunks > 1:
         refined["chunk_info"] = f"chunk {chunk_index + 1}/{total_chunks}"
     if extra:
@@ -102,7 +152,7 @@ def _citation_meta_dict(doc: Any) -> Dict[str, Any]:
     return {
         "file_name": cm.file_name,
         "file_path": cm.file_path,
-        "page_or_timestamp": cm.page_or_timestamp,
+        "location_label": cm.location_label,
         "sender": cm.sender,
     }
 
@@ -180,14 +230,14 @@ class Chunker:
             doc_id=doc.doc_id,
             source_type=doc.source_type,
             text=doc.text,
-            citation_meta=_refine_citation_meta(cm, 0, 1),
+            citation_meta=_refine_citation_meta(cm, 0, 1, doc, doc.text),
             chunk_index=0,
             total_chunks=1,
             metadata={
                 "source_type": doc.source_type,
                 "file_name": cm["file_name"],
                 "file_path": cm["file_path"],
-                "page_or_timestamp": cm["page_or_timestamp"],
+                "location_label": cm["location_label"],
                 "sender": cm.get("sender"),
                 "title": doc.title,
                 "has_structured_data": doc.structured_data is not None,
@@ -209,7 +259,7 @@ class Chunker:
         chunks: List[Chunk] = []
 
         for i, text in enumerate(text_chunks):
-            cm = _refine_citation_meta(base_cm, i, total)
+            cm = _refine_citation_meta(base_cm, i, total, doc, text)
             chunks.append(Chunk(
                 chunk_id=str(uuid.uuid4()),
                 doc_id=doc.doc_id,
@@ -222,7 +272,7 @@ class Chunker:
                     "source_type": doc.source_type,
                     "file_name": base_cm["file_name"],
                     "file_path": base_cm["file_path"],
-                    "page_or_timestamp": base_cm["page_or_timestamp"],
+                    "location_label": base_cm["location_label"],
                     "sender": base_cm.get("sender"),
                     "title": doc.title,
                     "chunk_index": i,

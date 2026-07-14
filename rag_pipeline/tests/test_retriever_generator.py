@@ -18,9 +18,9 @@ from rag_pipeline.core.retriever import Retriever
 
 def test_generator_citations():
     chunks = [
-        {'chunk_id': 'c1', 'text': 'Acme Corp invoiced 5000 USD in January.', 'metadata': {'file_name': 'inv001.pdf', 'page_or_timestamp': 'invoice INV-001', 'source_type': 'invoice', 'sender': 'Acme Corp'}},
-        {'chunk_id': 'c2', 'text': 'Q4 revenue grew 15 percent year-over-year.', 'metadata': {'file_name': 'q4_report.pdf', 'page_or_timestamp': 'page 3 of 20', 'source_type': 'pdf', 'sender': 'Finance Dept'}},
-        {'chunk_id': 'c3', 'text': 'Beta Ltd has an outstanding balance of 12500 USD.', 'metadata': {'file_name': 'ledger.xlsx', 'page_or_timestamp': 'sheet: Payments', 'source_type': 'excel', 'sender': None}},
+        {'chunk_id': 'c1', 'text': 'Acme Corp invoiced 5000 USD in January.', 'metadata': {'file_name': 'inv001.pdf', 'location_label': 'invoice INV-001', 'source_type': 'invoice', 'sender': 'Acme Corp'}},
+        {'chunk_id': 'c2', 'text': 'Q4 revenue grew 15 percent year-over-year.', 'metadata': {'file_name': 'q4_report.pdf', 'location_label': 'page 3 of 20', 'source_type': 'pdf', 'sender': 'Finance Dept'}},
+        {'chunk_id': 'c3', 'text': 'Beta Ltd has an outstanding balance of 12500 USD.', 'metadata': {'file_name': 'ledger.xlsx', 'location_label': 'sheet: Payments', 'source_type': 'excel', 'sender': None}},
     ]
 
     answer = 'Acme Corp invoiced USD 5,000 in January [1]. Revenue grew 15% in Q4 [2]. Beta Ltd owes USD 12,500 [3]. Both Acme and Beta are active vendors [1][3].'
@@ -39,7 +39,7 @@ def test_generator_citations():
 
 def test_generator_prompt():
     chunks = [
-        {'chunk_id': 'c1', 'text': 'Acme Corp invoiced 5000 USD in January.', 'metadata': {'file_name': 'inv001.pdf', 'page_or_timestamp': 'invoice INV-001', 'source_type': 'invoice', 'sender': 'Acme Corp'}},
+        {'chunk_id': 'c1', 'text': 'Acme Corp invoiced 5000 USD in January.', 'metadata': {'file_name': 'inv001.pdf', 'location_label': 'invoice INV-001', 'source_type': 'invoice', 'sender': 'Acme Corp'}},
     ]
     prompt = _build_prompt('What is the total invoice?', chunks)
     assert '[1] inv001.pdf | invoice INV-001 | (Acme Corp) | [invoice]' in prompt

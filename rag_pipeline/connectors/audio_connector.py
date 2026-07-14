@@ -10,7 +10,7 @@ If diarization is disabled (default), emits one envelope with the full
 transcript. If enabled, aligns whisper segments with pyannote speaker
 labels and emits one envelope per speaker turn.
 
-citation_meta page_or_timestamp = "HH:MM:SS–HH:MM:SS"
+citation_meta location_label = "HH:MM:SS–HH:MM:SS"
 """
 from __future__ import annotations
 

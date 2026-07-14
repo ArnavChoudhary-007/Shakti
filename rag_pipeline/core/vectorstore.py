@@ -10,7 +10,7 @@ Design goals:
 
 Metadata stored per chunk:
     doc_id, source_type, file_name, file_path,
-    page_or_timestamp, sender, title, chunk_index, total_chunks
+    location_label, sender, title, chunk_index, total_chunks
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ class VectorStore(ABC):
             chunk_id: str
             text: str
             embedding: list[float]
-            metadata: dict   (source_type, file_name, page_or_timestamp, ...)
+            metadata: dict   (source_type, file_name, location_label, ...)
         """
         ...
 

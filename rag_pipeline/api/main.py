@@ -155,7 +155,7 @@ class CitationOut(BaseModel):
     index: int
     file_name: str
     location: str
-    snippet: str
+    full_text: str
     source_type: str
     sender: Optional[str] = None
 

@@ -26,10 +26,10 @@ def assert_valid_doc(doc: NormalizedDocument, label: str) -> None:
     cm = doc.citation_meta
     assert cm.file_name, f"{label}: citation_meta.file_name missing"
     assert cm.file_path, f"{label}: citation_meta.file_path missing"
-    assert cm.page_or_timestamp, f"{label}: citation_meta.page_or_timestamp missing"
+    assert cm.location_label, f"{label}: citation_meta.location_label missing"
     print(f"  [PASS] {label}")
     print(f"         title={doc.title!r}")
-    print(f"         citation={cm.page_or_timestamp!r}, sender={cm.sender!r}")
+    print(f"         citation={cm.location_label!r}, sender={cm.sender!r}")
 
 
 def test_normalize_pdf():
@@ -45,7 +45,7 @@ def test_normalize_pdf():
     }
     doc = normalizer.normalize(env)
     assert_valid_doc(doc, "PDF")
-    assert "page 3" in doc.citation_meta.page_or_timestamp
+    assert "page 3" in doc.citation_meta.location_label
     assert doc.citation_meta.sender == "Finance Dept"
 
 
@@ -63,7 +63,7 @@ def test_normalize_docx():
     doc = normalizer.normalize(env)
     assert_valid_doc(doc, "DOCX")
     assert doc.title == "Service Agreement"
-    assert doc.citation_meta.page_or_timestamp == "full document"
+    assert doc.citation_meta.location_label == "full document"
 
 
 def test_normalize_pptx():
@@ -79,7 +79,7 @@ def test_normalize_pptx():
     }
     doc = normalizer.normalize(env)
     assert_valid_doc(doc, "PPTX")
-    assert "slide 2" in doc.citation_meta.page_or_timestamp
+    assert "slide 2" in doc.citation_meta.location_label
     assert "Revenue Breakdown" in doc.title
 
 
@@ -133,7 +133,7 @@ def test_normalize_email():
     assert_valid_doc(doc, "Email")
     assert "Invoice from Acme Corp" in doc.title
     assert doc.citation_meta.sender == "billing@acme.com"
-    assert "message 1" in doc.citation_meta.page_or_timestamp
+    assert "message 1" in doc.citation_meta.location_label
 
 
 def test_normalize_whatsapp():
@@ -185,7 +185,7 @@ def test_normalize_slack():
     doc = normalizer.normalize(env)
     assert_valid_doc(doc, "Slack")
     assert "#general" in doc.title
-    assert "general" in doc.citation_meta.page_or_timestamp
+    assert "general" in doc.citation_meta.location_label
 
 
 def test_normalize_teams():
@@ -244,7 +244,7 @@ def test_normalize_audio():
     doc = normalizer.normalize(env)
     assert_valid_doc(doc, "Audio")
     assert "SPEAKER_01" in doc.title
-    assert "00:02:25" in doc.citation_meta.page_or_timestamp
+    assert "00:02:25" in doc.citation_meta.location_label
     assert doc.speakers == ["SPEAKER_00", "SPEAKER_01"]
 
 
