@@ -838,6 +838,32 @@
     .cv-text { white-space: pre-wrap; }
     .cv-text.markdown-body { white-space: normal; }
     .cv-location { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+    /* ── Model Manager ─────────────────────────────────────────── */
+    #panelModels { overflow-y: auto; }
+    .hardware-banner { background: var(--bg-card); padding: 16px 20px; border-radius: var(--radius-md); border: 1px solid var(--border); margin-bottom: 24px; display: flex; align-items: center; gap: 12px; }
+    .hardware-icon { font-size: 24px; }
+    .hardware-text { font-size: 14px; color: var(--text-primary); font-weight: 500; }
+    .installed-models-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
+    .installed-model-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); }
+    .installed-model-info { display: flex; flex-direction: column; gap: 4px; }
+    .installed-model-name { font-weight: 600; color: var(--text-primary); }
+    .installed-model-size { font-size: 12px; color: var(--text-muted); }
+    .btn-delete { background: #e53e3e; color: white; border: none; padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; transition: 0.2s; }
+    .btn-delete:hover { background: #c53030; }
+    .models-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+    .model-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+    .model-card-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .model-name { font-weight: 700; font-size: 16px; color: var(--text-primary); }
+    .model-size { font-size: 12px; color: var(--text-muted); font-weight: 500; background: var(--bg-base); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
+    .model-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; flex-grow: 1; }
+    .model-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
+    .model-tag { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; background: rgba(99,179,237,0.1); color: var(--accent); }
+    .btn-download { width: 100%; padding: 10px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary); font-weight: 600; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; margin-top: 8px; font-family: 'Inter', sans-serif; }
+    .btn-download:hover { background: var(--border); }
+    .btn-download:disabled { opacity: 0.5; cursor: not-allowed; }
+    .download-progress-container { width: 100%; height: 6px; background: var(--bg-base); border-radius: 4px; overflow: hidden; margin-top: 12px; display: none; }
+    .download-progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+    .download-status { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 6px; display: none; }
   </style>
 </head>
 <body>
@@ -871,6 +897,9 @@
     <button class="sidebar-btn" id="btnStats" onclick="switchTab('stats')">
       <span class="icon">📊</span> Overview
     </button>
+    <button class="sidebar-btn" id="btnModels" onclick="switchTab('models')">
+      <span class="icon">🤖</span> Models
+    </button>
 
     <div class="sidebar-divider"></div>
     <div class="sidebar-label">Recent Queries</div>
@@ -890,6 +919,7 @@
       <button class="tab" id="tabIngest" onclick="switchTab('ingest')">Ingest Documents</button>
       <button class="tab" id="tabGraph" onclick="switchTab('graph')">Knowledge Graph</button>
       <button class="tab" id="tabStats" onclick="switchTab('stats')">Overview</button>
+      <button class="tab" id="tabModels" onclick="switchTab('models')">Model Manager</button>
     </div>
 
     <!-- ── Chat panel ──────────────────────────────────── -->
@@ -909,7 +939,7 @@
               onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
             <div class="input-controls">
               <label class="stream-toggle" title="Stream response token by token">
-                <input type="checkbox" id="streamToggle" />
+                <input type="checkbox" id="streamToggle" checked />
                 <span class="toggle-pill"></span>
               </label>
             </div>
@@ -1015,12 +1045,33 @@
           <div class="stat-card">
             <div class="stat-label">Embedder</div>
             <div class="stat-value" id="statEmbedder" style="font-size:18px;padding-top:8px">—</div>
-            <div class="stat-sub">all-MiniLM-L6-v2</div>
           </div>
         </div>
         <div class="models-list" id="modelsList">
           <div class="models-list-header">Available Ollama Models</div>
           <div id="modelsRows" style="color:var(--text-muted);padding:16px;font-size:13px">Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Models panel ──────────────────────────────────── -->
+    <div class="panel" id="panelModels">
+      <div style="padding: 24px; max-width: 1200px; margin: 0 auto;">
+        <div id="hardwareBanner" class="hardware-banner">
+          <div class="hardware-icon">🖥️</div>
+          <div class="hardware-text" id="hardwareText">Detecting system specifications...</div>
+        </div>
+        
+        <div style="display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap;">
+          <div style="flex: 0 0 350px;">
+            <h3 style="margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Installed Models</h3>
+            <div id="installedModelsList" class="installed-models-list"></div>
+          </div>
+          
+          <div style="flex: 1; min-width: 400px;">
+            <h3 style="margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Recommended Models</h3>
+            <div id="modelsGrid" class="models-grid"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1194,12 +1245,19 @@
       // Populate model selector
       const sel = document.getElementById('modelSelect');
       sel.innerHTML = '';
+      
+      if (!selectedModel && d.ollama_models.length > 0) {
+        // Auto-select fastest available model
+        const fastModel = d.ollama_models.find(m => m.includes('1b') || m.includes('tiny') || m.includes('qwen'));
+        const llamaModel = d.ollama_models.find(m => m.includes('llama'));
+        selectedModel = fastModel || llamaModel || d.ollama_models[0];
+      }
+
       d.ollama_models.forEach(m => {
         const opt = document.createElement('option');
         opt.value = m; opt.textContent = m;
-        if (m === selectedModel || (!selectedModel && m.includes('llama'))) {
+        if (m === selectedModel) {
           opt.selected = true;
-          selectedModel = m;
         }
         sel.appendChild(opt);
       });
@@ -1282,7 +1340,7 @@
   }
 
   async function regularQuery(query, model, aiMsg, historyPayload) {
-    const payload = { query, top_k: 5, model, stream: false, history: historyPayload };
+    const payload = { query, top_k: 3, model, stream: false, history: historyPayload };
     const r = await fetch(`${API}/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1295,7 +1353,7 @@
   }
 
   async function streamQuery(query, model, aiMsg, historyPayload) {
-    const payload = { query, top_k: 5, model, stream: true, history: historyPayload };
+    const payload = { query, top_k: 3, model, stream: true, history: historyPayload };
     const r = await fetch(`${API}/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1919,8 +1977,179 @@
     document.getElementById('cvNav').style.display = cvCitations.length > 1 ? 'flex' : 'none';
   }
 
+  // ── Model Manager Logic ────────────────────────────────
+  async function fetchModelRecommendations() {
+    try {
+      const res = await fetch(`${API}/system/recommendations`);
+      const data = await res.json();
+      
+      document.getElementById('hardwareText').textContent = 
+        `Detected: ${data.hardware.ram_gb} GB RAM | ${data.hardware.cpu_cores} Logical Cores`;
+
+      const grid = document.getElementById('modelsGrid');
+      grid.innerHTML = '';
+
+      data.models.forEach(model => {
+        const card = document.createElement('div');
+        card.className = 'model-card';
+        card.innerHTML = `
+          <div class="model-card-header">
+            <div class="model-name">${model.name}</div>
+            <div class="model-size">${model.size}</div>
+          </div>
+          <div class="model-desc">${model.desc}</div>
+          <div class="model-tags">
+            ${model.tags.map(t => `<span class="model-tag">${t}</span>`).join('')}
+          </div>
+          <button class="btn-download" id="dlBtn-${model.name.replace(':','-')}" onclick="downloadModel('${model.name}')">Download</button>
+          <div class="download-progress-container" id="dlProgC-${model.name.replace(':','-')}">
+            <div class="download-progress-fill" id="dlProgF-${model.name.replace(':','-')}"></div>
+          </div>
+          <div class="download-status" id="dlStat-${model.name.replace(':','-')}">Preparing...</div>
+        `;
+        grid.appendChild(card);
+      });
+    } catch (e) {
+      console.error('Failed to fetch recommendations:', e);
+      document.getElementById('hardwareText').textContent = 'Unable to detect system hardware.';
+    }
+  }
+
+  async function downloadModel(modelName) {
+    const idSafe = modelName.replace(':','-');
+    const btn = document.getElementById(`dlBtn-${idSafe}`);
+    const progC = document.getElementById(`dlProgC-${idSafe}`);
+    const progF = document.getElementById(`dlProgF-${idSafe}`);
+    const stat = document.getElementById(`dlStat-${idSafe}`);
+
+    btn.style.display = 'none';
+    progC.style.display = 'block';
+    stat.style.display = 'block';
+
+    try {
+      const res = await fetch(`${API}/ollama/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: modelName })
+      });
+
+      if (!res.ok) throw new Error('Download request failed');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      let startTime = null;
+      let currentDigest = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const data = JSON.parse(line);
+            if (data.status) {
+               stat.textContent = data.status;
+            }
+            if (data.total && data.completed) {
+               if (currentDigest !== data.digest) {
+                  currentDigest = data.digest;
+                  startTime = Date.now();
+               }
+
+               const pct = Math.round((data.completed / data.total) * 100);
+               progF.style.width = pct + '%';
+
+               let etaStr = '';
+               if (startTime) {
+                 const elapsed = (Date.now() - startTime) / 1000;
+                 if (elapsed > 1 && data.completed > 0) {
+                   const speed = data.completed / elapsed;
+                   const remaining = data.total - data.completed;
+                   const etaSeconds = Math.round(remaining / speed);
+                   if (etaSeconds > 60) {
+                     etaStr = ` • ETA: ${Math.floor(etaSeconds/60)}m ${etaSeconds%60}s`;
+                   } else {
+                     etaStr = ` • ETA: ${etaSeconds}s`;
+                   }
+                 }
+               }
+
+               stat.textContent = `${data.status} (${pct}%)${etaStr}`;
+            }
+          } catch (err) {}
+        }
+      }
+      
+      stat.textContent = 'Download Complete!';
+      stat.style.color = 'var(--accent)';
+      setTimeout(() => { checkHealth(); fetchModelRecommendations(); fetchInstalledModels(); }, 2000); // refresh available models
+      
+    } catch (e) {
+      stat.textContent = 'Error: ' + e.message;
+      stat.style.color = '#e53e3e';
+      btn.style.display = 'block';
+      btn.textContent = 'Retry Download';
+    }
+  }
+
+  async function fetchInstalledModels() {
+    try {
+      const res = await fetch(`${API}/ollama/models`);
+      const data = await res.json();
+      const list = document.getElementById('installedModelsList');
+      list.innerHTML = '';
+      
+      if (!data.models || data.models.length === 0) {
+        list.innerHTML = '<div style="color: var(--text-muted); font-size: 14px;">No models currently installed.</div>';
+        return;
+      }
+
+      data.models.sort((a, b) => a.size - b.size);
+
+      data.models.forEach(m => {
+        const sizeGB = (m.size / (1024**3)).toFixed(1);
+        const item = document.createElement('div');
+        item.className = 'installed-model-item';
+        item.innerHTML = `
+          <div class="installed-model-info">
+            <div class="installed-model-name">${m.name}</div>
+            <div class="installed-model-size">${sizeGB} GB</div>
+          </div>
+          <button class="btn-delete" onclick="deleteModel('${m.name}')">Delete</button>
+        `;
+        list.appendChild(item);
+      });
+    } catch (e) {
+      console.error("Failed to fetch installed models", e);
+    }
+  }
+
+  async function deleteModel(modelName) {
+    if (!confirm(`Are you sure you want to delete ${modelName}?`)) return;
+    try {
+      const res = await fetch(`${API}/ollama/models/${encodeURIComponent(modelName)}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) throw new Error('Delete failed');
+      
+      checkHealth();
+      fetchInstalledModels();
+      fetchModelRecommendations();
+    } catch (e) {
+      alert("Error deleting model: " + e.message);
+    }
+  }
+
   // ── Init ─────────────────────────────────────────────────
   checkHealth();
+  fetchModelRecommendations();
+  fetchInstalledModels();
   setInterval(checkHealth, 30000);
 </script>
 </body>

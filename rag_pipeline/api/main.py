@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import sys
+import psutil
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -234,6 +235,126 @@ async def list_models():
             return resp.json()
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Cannot reach Ollama: {e}")
+
+@app.delete("/ollama/models/{model_name}", tags=["System"])
+async def delete_model(model_name: str):
+    """Delete a downloaded model from Ollama."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.request("DELETE", f"{_OLLAMA_HOST}/api/delete", json={"model": model_name})
+            resp.raise_for_status()
+            return {"status": "deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete model: {e}")
+
+class PullRequest(BaseModel):
+    model: str
+
+@app.get("/system/recommendations", tags=["System"])
+async def system_recommendations():
+    """Detect system specs and return recommended models."""
+    ram_gb = round(psutil.virtual_memory().total / (1024 ** 3), 1)
+    cpu_cores = psutil.cpu_count(logical=True) or 4
+
+    # Fetch currently downloaded models
+    downloaded_models = set()
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{_OLLAMA_HOST}/api/tags")
+            if resp.status_code == 200:
+                for m in resp.json().get("models", []):
+                    name = m.get("name", "")
+                    downloaded_models.add(name)
+                    if name.endswith(":latest"):
+                        downloaded_models.add(name.replace(":latest", ""))
+    except Exception:
+        pass
+
+    if ram_gb < 8:
+        tier = "light"
+        master_models = [
+            {"name": "llama3.2:1b", "size": "1.3 GB", "desc": "Meta's extremely capable lightweight reasoning model", "tags": ["Recommended", "Fast"]},
+            {"name": "llama3.2:3b", "size": "2.0 GB", "desc": "Excellent balance of speed and instruction following", "tags": ["Recommended"]},
+            {"name": "qwen2.5:0.5b", "size": "0.4 GB", "desc": "Ultra-fast, perfect for extremely low RAM setups", "tags": ["Ultra-Fast"]},
+            {"name": "qwen2.5:1.5b", "size": "1.1 GB", "desc": "Great coding and logic in a tiny footprint", "tags": ["Fast"]},
+            {"name": "qwen2.5:3b", "size": "1.9 GB", "desc": "Strong multi-lingual and logic performance", "tags": ["Balanced"]},
+            {"name": "gemma2:2b", "size": "1.6 GB", "desc": "Google's 2B model, punches far above its weight", "tags": ["General"]},
+            {"name": "phi3:mini", "size": "2.2 GB", "desc": "Microsoft's highly capable compact model", "tags": ["Reasoning"]},
+            {"name": "tinyllama", "size": "0.6 GB", "desc": "Classic 1B model, very fast inference", "tags": ["Fast"]},
+            {"name": "orca-mini", "size": "1.9 GB", "desc": "Highly tuned for explanation and reasoning", "tags": ["General"]},
+            {"name": "deepseek-coder:1.3b", "size": "0.8 GB", "desc": "Best-in-class coding model for under 1GB", "tags": ["Coding"]},
+            {"name": "smollm:1.7b", "size": "1.7 GB", "desc": "Highly efficient reasoning model", "tags": ["Reasoning"]},
+            {"name": "starcoder2:3b", "size": "1.7 GB", "desc": "Great lightweight autocomplete model", "tags": ["Coding"]},
+            {"name": "granite-code:3b", "size": "2.0 GB", "desc": "IBM's trusted enterprise coding model", "tags": ["Coding"]},
+            {"name": "stable-code:3b", "size": "1.6 GB", "desc": "Stable Diffusion's coding LLM", "tags": ["Coding"]},
+            {"name": "llama2:7b", "size": "3.8 GB", "desc": "Classic Meta model, still reliable", "tags": ["Legacy"]}
+        ]
+    elif ram_gb < 16:
+        tier = "standard"
+        master_models = [
+            {"name": "llama3.1:8b", "size": "4.7 GB", "desc": "Meta's flagship 8B model. Superb logic and RAG.", "tags": ["Recommended", "General"]},
+            {"name": "qwen2.5:7b", "size": "4.4 GB", "desc": "Top-tier coding, multi-lingual, and general reasoning", "tags": ["Recommended", "Balanced"]},
+            {"name": "gemma2:9b", "size": "5.5 GB", "desc": "High-quality model from Google, very creative", "tags": ["Creative"]},
+            {"name": "mistral:7b", "size": "4.1 GB", "desc": "Excellent standard 7B model, classic reliable choice", "tags": ["General"]},
+            {"name": "phi3:medium", "size": "7.9 GB", "desc": "Advanced reasoning capabilities from Microsoft", "tags": ["Reasoning"]},
+            {"name": "llama3.2:3b", "size": "2.0 GB", "desc": "Included for blazing fast generation on 8GB machines", "tags": ["Fast"]},
+            {"name": "codellama:7b", "size": "3.8 GB", "desc": "Meta's fine-tuned model specifically for programming", "tags": ["Coding"]},
+            {"name": "deepseek-coder:6.7b", "size": "3.8 GB", "desc": "Incredibly capable standard-tier coding model", "tags": ["Coding"]},
+            {"name": "wizardlm2:7b", "size": "4.1 GB", "desc": "Microsoft's complex instruction-following model", "tags": ["Reasoning"]},
+            {"name": "starcoder2:7b", "size": "4.0 GB", "desc": "Great for auto-complete and large codebase tasks", "tags": ["Coding"]},
+            {"name": "neural-chat:7b", "size": "4.1 GB", "desc": "Intel's highly optimized instruction model", "tags": ["General"]},
+            {"name": "starling-lm:7b", "size": "4.1 GB", "desc": "RLHF fine-tuned model for helpfulness", "tags": ["Helpful"]},
+            {"name": "dolphin-mistral:7b", "size": "4.1 GB", "desc": "Uncensored, highly compliant assistant", "tags": ["Uncensored"]},
+            {"name": "orca-mini:7b", "size": "4.1 GB", "desc": "Microsoft's instruction-tuned model", "tags": ["Reasoning"]},
+            {"name": "llama3:8b", "size": "4.7 GB", "desc": "Meta's original Llama 3 model", "tags": ["Legacy"]}
+        ]
+    else:
+        tier = "heavy"
+        master_models = [
+            {"name": "qwen2.5:14b", "size": "9.0 GB", "desc": "Exceptional coding & reasoning, fits perfectly in 16GB", "tags": ["Recommended", "Balanced"]},
+            {"name": "mistral-nemo:12b", "size": "7.1 GB", "desc": "Large context window, great intelligence, fast", "tags": ["Recommended", "General"]},
+            {"name": "llama3.1:8b", "size": "4.7 GB", "desc": "Included for blazing fast generation on heavy machines", "tags": ["Fast"]},
+            {"name": "gemma2:27b", "size": "16.1 GB", "desc": "Massive Google model, requires high VRAM", "tags": ["Reasoning"]},
+            {"name": "qwen2.5-coder:32b", "size": "19.0 GB", "desc": "State-of-the-art coding, near GPT-4 performance", "tags": ["Coding", "Heavy"]},
+            {"name": "command-r:35b", "size": "20.0 GB", "desc": "Purpose-built for advanced RAG and tool use", "tags": ["RAG", "Heavy"]},
+            {"name": "codestral:22b", "size": "13.0 GB", "desc": "Mistral's flagship coding model", "tags": ["Coding"]},
+            {"name": "mixtral:8x7b", "size": "26.0 GB", "desc": "Mixture of Experts model, highly efficient reasoning", "tags": ["MoE", "Ultra-Heavy"]},
+            {"name": "llama3:70b", "size": "39.0 GB", "desc": "Enterprise-grade reasoning (Requires 64GB RAM)", "tags": ["Ultra-Heavy"]},
+            {"name": "dolphin-mixtral:8x7b", "size": "26.0 GB", "desc": "Uncensored MoE model", "tags": ["Uncensored"]},
+            {"name": "deepseek-coder-v2:16b", "size": "8.9 GB", "desc": "Incredibly capable MoE coding model", "tags": ["Coding"]},
+            {"name": "qwen2:72b", "size": "41.0 GB", "desc": "Massive 72B parameter model", "tags": ["Ultra-Heavy"]},
+            {"name": "llama2:70b", "size": "39.0 GB", "desc": "Meta's original massive Llama 2", "tags": ["Legacy"]},
+            {"name": "command-r-plus:104b", "size": "59.0 GB", "desc": "Cohere's massive RAG model", "tags": ["RAG", "Ultra-Heavy"]},
+            {"name": "wizardlm2:8x22b", "size": "80.0 GB", "desc": "Massive instruction model (Requires 128GB RAM)", "tags": ["Ultra-Heavy"]}
+        ]
+        
+    models = [m for m in master_models if m["name"] not in downloaded_models][:10]
+    models.sort(key=lambda x: float(x["size"].replace(" GB", "")))
+
+    return {
+        "hardware": {
+            "ram_gb": ram_gb,
+            "cpu_cores": cpu_cores
+        },
+        "tier": tier,
+        "models": models
+    }
+
+@app.post("/ollama/pull", tags=["System"])
+async def pull_model(req: PullRequest):
+    """Proxy the model pull request to Ollama and stream the JSON progress back."""
+    async def stream_pull():
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream("POST", f"{_OLLAMA_HOST}/api/pull", json={"model": req.model}) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if line:
+                            yield line + "\n"
+        except Exception as e:
+            yield json.dumps({"error": str(e)}) + "\n"
+
+    return StreamingResponse(stream_pull(), media_type="application/x-ndjson")
 
 
 # ── /docs_count ───────────────────────────────────────────────
