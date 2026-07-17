@@ -1978,6 +1978,7 @@
   }
 
   // ── Model Manager Logic ────────────────────────────────
+  const downloadControllers = {};
   async function fetchModelRecommendations() {
     try {
       const res = await fetch(`${API}/system/recommendations`);
@@ -2002,8 +2003,11 @@
             ${model.tags.map(t => `<span class="model-tag">${t}</span>`).join('')}
           </div>
           <button class="btn-download" id="dlBtn-${model.name.replace(':','-')}" onclick="downloadModel('${model.name}')">Download</button>
-          <div class="download-progress-container" id="dlProgC-${model.name.replace(':','-')}">
-            <div class="download-progress-fill" id="dlProgF-${model.name.replace(':','-')}"></div>
+          <div id="dlWrapper-${model.name.replace(':','-')}" style="display:none; align-items:center; gap:8px;">
+            <div class="download-progress-container" id="dlProgC-${model.name.replace(':','-')}" style="flex-grow:1; margin:0;">
+              <div class="download-progress-fill" id="dlProgF-${model.name.replace(':','-')}"></div>
+            </div>
+            <button class="btn-cancel" onclick="cancelDownload('${model.name}')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
           </div>
           <div class="download-status" id="dlStat-${model.name.replace(':','-')}">Preparing...</div>
         `;
@@ -2018,19 +2022,22 @@
   async function downloadModel(modelName) {
     const idSafe = modelName.replace(':','-');
     const btn = document.getElementById(`dlBtn-${idSafe}`);
-    const progC = document.getElementById(`dlProgC-${idSafe}`);
+    const wrapper = document.getElementById(`dlWrapper-${idSafe}`);
     const progF = document.getElementById(`dlProgF-${idSafe}`);
     const stat = document.getElementById(`dlStat-${idSafe}`);
 
     btn.style.display = 'none';
-    progC.style.display = 'block';
+    wrapper.style.display = 'flex';
     stat.style.display = 'block';
+    
+    downloadControllers[idSafe] = new AbortController();
 
     try {
       const res = await fetch(`${API}/ollama/pull`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: modelName })
+        body: JSON.stringify({ model: modelName }),
+        signal: downloadControllers[idSafe].signal
       });
 
       if (!res.ok) throw new Error('Download request failed');
@@ -2091,10 +2098,25 @@
       setTimeout(() => { checkHealth(); fetchModelRecommendations(); fetchInstalledModels(); }, 2000); // refresh available models
       
     } catch (e) {
-      stat.textContent = 'Error: ' + e.message;
-      stat.style.color = '#e53e3e';
+      if (e.name === 'AbortError') {
+        stat.textContent = 'Download Canceled';
+        stat.style.color = 'var(--text-muted)';
+      } else {
+        stat.textContent = 'Error: ' + e.message;
+        stat.style.color = '#e53e3e';
+      }
       btn.style.display = 'block';
+      wrapper.style.display = 'none';
       btn.textContent = 'Retry Download';
+    } finally {
+      delete downloadControllers[idSafe];
+    }
+  }
+
+  function cancelDownload(modelName) {
+    const idSafe = modelName.replace(':','-');
+    if (downloadControllers[idSafe]) {
+      downloadControllers[idSafe].abort();
     }
   }
 
