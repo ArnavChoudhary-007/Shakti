@@ -26,6 +26,12 @@ ollama:
   default_vision_model: "llava"      # multimodal / vision model
   request_timeout: 300               # seconds
 
+# ── Retrieval ────────────────────────────────────────────────
+retrieval:
+  final_k: 6
+  candidate_k: 20
+  reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
 # ── Chunking ─────────────────────────────────────────────────
 chunking:
   default_chunk_size: 800            # tokens (approx characters / 4)

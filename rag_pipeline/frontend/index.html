@@ -1071,6 +1071,56 @@
           <div style="flex: 1; min-width: 400px;">
             <h3 style="margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Recommended Models</h3>
             <div id="modelsGrid" class="models-grid"></div>
+            
+            <h3 style="margin-top: 40px; margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Cloud Alternatives (Zero RAM Required)</h3>
+            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">If your device lacks the RAM to run large models locally, you can use these incredibly fast cloud providers that host open-source models.</p>
+            <div class="models-grid">
+              
+              <!-- Groq -->
+              <div class="model-card">
+                <div class="model-card-header">
+                  <div class="model-name">Groq (LPU)</div>
+                  <div class="model-size">Cloud</div>
+                </div>
+                <div class="model-desc">Insanely fast inference using specialized hardware (LPU). Hosts Llama 3.1 70B, Mixtral, and Gemma. Perfect for ultra-fast RAG.</div>
+                <div class="model-tags">
+                  <span class="model-tag">Extremely Fast</span>
+                  <span class="model-tag">Llama 3.1</span>
+                </div>
+                <a href="https://console.groq.com/" target="_blank" style="text-decoration: none;">
+                  <button class="btn-download" style="width: 100%; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border);">Open Groq Console</button>
+                </a>
+              </div>
+
+              <!-- Together AI -->
+              <div class="model-card">
+                <div class="model-card-header">
+                  <div class="model-name">Together AI</div>
+                  <div class="model-size">Cloud</div>
+                </div>
+                <div class="model-desc">Massive catalog of open-weights models including Llama 3.1 405B and Qwen 2.5 72B. Great for heavy logic tasks.</div>
+                <div class="model-tags">
+                  <span class="model-tag">Huge Catalog</span>
+                  <span class="model-tag">405B Models</span>
+                </div>
+                <button class="btn-download" style="width: 100%; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border);" onclick="window.open('https://api.together.ai/', '_blank')">Open Together AI</button>
+              </div>
+              
+              <!-- Fireworks AI -->
+              <div class="model-card">
+                <div class="model-card-header">
+                  <div class="model-name">Fireworks AI</div>
+                  <div class="model-size">Cloud</div>
+                </div>
+                <div class="model-desc">Highly optimized and cost-effective inference for standard models like DeepSeek Coder V2 and Mixtral 8x22B.</div>
+                <div class="model-tags">
+                  <span class="model-tag">Cost Effective</span>
+                  <span class="model-tag">Coding Models</span>
+                </div>
+                <button class="btn-download" style="width: 100%; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border);" onclick="window.open('https://fireworks.ai/', '_blank')">Open Fireworks AI</button>
+              </div>
+
+            </div>
           </div>
         </div>
       </div>
@@ -1255,7 +1305,8 @@
 
       d.ollama_models.forEach(m => {
         const opt = document.createElement('option');
-        opt.value = m; opt.textContent = m;
+        opt.value = m; 
+        opt.textContent = (m.startsWith('groq/') || m.startsWith('together/')) ? `☁️ ${m}` : m;
         if (m === selectedModel) {
           opt.selected = true;
         }
@@ -1382,7 +1433,7 @@
           continue;
         }
         if (line.startsWith('data: ')) {
-          const data = line.slice(6).trim();
+          const data = line.slice(6).replace(/\r$/, '');
           if (data === '[DONE]') break;
 
           if (nextIsCitationData || (data.startsWith('{') && data.includes('"citations"'))) {

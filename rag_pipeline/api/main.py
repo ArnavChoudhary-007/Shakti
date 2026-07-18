@@ -22,6 +22,9 @@ import sys
 import psutil
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import httpx
 import yaml
@@ -201,6 +204,16 @@ async def health():
                 ollama_status = "ok"
     except Exception as e:
         ollama_status = f"error: {e}"
+
+    # Append Cloud Models
+    cloud_models = [
+        "groq/llama3-8b-8192", 
+        "groq/llama3-70b-8192", 
+        "groq/mixtral-8x7b-32768", 
+        "together/meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+        "together/Qwen/Qwen2.5-72B-Instruct-Turbo"
+    ]
+    available_models.extend(cloud_models)
 
     embedder_status = "ok"
     try:
