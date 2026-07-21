@@ -10,35 +10,39 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- highlight.js for syntax highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <style>
     /* ── Design tokens ─────────────────────────────────── */
     :root {
-      --bg-base:        #fdfcfb;
-      --bg-surface:     #ffffff;
-      --bg-elevated:    #fafaf9;
-      --bg-card:        #ffffff;
-      --bg-input:       #f5f5f4;
-      --border:         #e5e7eb;
-      --border-active:  #111111;
-      --accent:         #111111;
-      --accent-glow:    #f3f4f6;
-      --accent-2:       #4b5563;
+      --bg-base:        #0B0D17;
+      --bg-surface:     rgba(18, 20, 31, 0.65);
+      --bg-elevated:    rgba(30, 33, 48, 0.85);
+      --bg-card:        rgba(25, 28, 41, 0.75);
+      --bg-input:       rgba(15, 17, 26, 0.8);
+      --border:         rgba(255, 255, 255, 0.08);
+      --border-active:  #9333ea;
+      --accent:         #9333ea;
+      --accent-glow:    rgba(147, 51, 234, 0.15);
+      --accent-2:       #c084fc;
       --accent-3:       #10b981;
-      --text-primary:   #111111;
-      --text-secondary: #4b5563;
-      --text-muted:     #9ca3af;
-      --tag-pdf:        #dc2626;
-      --tag-docx:       #2563eb;
-      --tag-excel:      #16a34a;
-      --tag-audio:      #d97706;
-      --tag-chat:       #9333ea;
-      --tag-invoice:    #ea580c;
-      --tag-email:      #0284c7;
+      --text-primary:   #f8fafc;
+      --text-secondary: #cbd5e1;
+      --text-muted:     #64748b;
+      --tag-pdf:        #ef4444;
+      --tag-docx:       #3b82f6;
+      --tag-excel:      #22c55e;
+      --tag-audio:      #f59e0b;
+      --tag-chat:       #a855f7;
+      --tag-invoice:    #f97316;
+      --tag-email:      #0ea5e9;
       --radius-sm:      8px;
       --radius-md:      12px;
       --radius-lg:      16px;
-      --shadow-card:    0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-      --transition:     0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      --shadow-card:    0 8px 32px -4px rgba(0, 0, 0, 0.5), 0 4px 16px -4px rgba(0, 0, 0, 0.4);
+      --shadow-glow:    0 0 15px rgba(147, 51, 234, 0.4);
+      --transition:     0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -46,7 +50,7 @@
     body {
       font-family: 'Inter', system-ui, sans-serif;
       background-color: var(--bg-base);
-      background-image: radial-gradient(circle, rgba(17,17,17,0.08) 1px, transparent 1px);
+      background-image: radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
       background-size: 24px 24px;
       color: var(--text-primary);
       min-height: 100vh;
@@ -56,8 +60,55 @@
     /* ── Scrollbar ──────────────────────────────────────── */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+    /* ── Knowledge Graph Immersive Additions ────────────── */
+    .glass-tooltip {
+      position: absolute;
+      padding: 12px 16px;
+      background: rgba(20, 20, 25, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      color: #e2e8f0;
+      font-size: 13px;
+      font-family: 'Inter', sans-serif;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.2s ease, transform 0.1s ease-out;
+      transform: translate(-50%, -100%) scale(0.95);
+      margin-top: -15px;
+    }
+    .glass-tooltip.visible {
+      opacity: 1;
+      transform: translate(-50%, -100%) scale(1);
+    }
+    .glass-tooltip .tt-title {
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+    .glass-tooltip .tt-type {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #9333ea;
+      margin-bottom: 8px;
+    }
+
+    #kgContainer.immersive {
+      background: #0f111a;
+      background-image: radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 24px 24px;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: inset 0 0 100px rgba(0,0,0,0.5);
+    }
 
     /* ── Layout ─────────────────────────────────────────── */
     .app {
@@ -76,6 +127,8 @@
       gap: 12px;
       padding: 0 20px;
       background: var(--bg-surface);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--border);
       position: relative;
       z-index: 10;
@@ -134,10 +187,16 @@
       outline: none;
     }
     .model-selector:hover, .model-selector:focus { border-color: var(--border-active); }
+    .model-selector option, .model-selector optgroup {
+      background: #1e2130;
+      color: var(--text-primary);
+    }
 
     /* ── Sidebar ─────────────────────────────────────────── */
     .sidebar {
       background: var(--bg-surface);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       border-right: 1px solid var(--border);
       overflow-y: auto;
       display: flex;
@@ -171,7 +230,7 @@
       text-align: left;
       width: 100%;
     }
-    .sidebar-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+    .sidebar-btn:hover { background: var(--bg-elevated); color: var(--text-primary); transform: scale(1.01); }
     .sidebar-btn.active { background: var(--accent-glow); color: var(--accent); border-left: 2px solid var(--accent); padding-left: 10px; }
     .sidebar-btn .icon { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
 
@@ -187,7 +246,7 @@
       text-align: left;
       width: 100%;
     }
-    .history-item:hover { background: var(--bg-elevated); }
+    .history-item:hover { background: var(--bg-elevated); transform: scale(1.01); }
     .history-item .q { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .history-item .meta { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
 
@@ -206,6 +265,8 @@
       padding: 10px 20px 0;
       border-bottom: 1px solid var(--border);
       background: var(--bg-surface);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
     .tab {
       padding: 8px 16px;
@@ -310,13 +371,39 @@
       line-height: 1.7;
       max-width: calc(100% - 48px);
       box-shadow: var(--shadow-card);
+      position: relative;
     }
-    .bubble.ai { background: #ffffff; border: 1px solid var(--border); color: var(--text-primary); }
-    .bubble.user { background: #111111; border: 1px solid #111111; color: #ffffff; }
+    .bubble.ai { 
+      background: rgba(30, 33, 48, 0.7); 
+      border: 1px solid rgba(255, 255, 255, 0.08); 
+      color: var(--text-primary); 
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .bubble.user { 
+      background: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%); 
+      border: none; 
+      color: #ffffff; 
+      box-shadow: 0 4px 15px rgba(147, 51, 234, 0.4);
+    }
 
     .bubble-content {}
-    .streaming-cursor::after { content: '▋'; animation: blink 0.8s infinite; color: var(--accent); }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    .streaming-cursor::after { 
+      content: ''; 
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background-color: var(--accent);
+      margin-left: 6px;
+      animation: pulse-glow 1s infinite alternate; 
+    }
+    @keyframes pulse-glow { 0% { opacity: 0.3; transform: scale(0.8); box-shadow: 0 0 0 rgba(147,51,234,0); } 100% { opacity: 1; transform: scale(1.1); box-shadow: 0 0 10px rgba(147,51,234,0.8); } }
+
+    .markdown-body pre { position: relative; background: #16161e; border-radius: 8px; margin: 12px 0; padding: 12px; overflow-x: auto; border: 1px solid rgba(255,255,255,0.05); }
+    .markdown-body code { font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+    .markdown-body p code { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    .copy-code-btn { position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1); color: #cbd5e1; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: 0.2s; z-index: 10; }
+    .copy-code-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
 
     /* ── Markdown & Jump-list ───────────────────────────── */
     .markdown-body h2, .markdown-body h3 {
@@ -521,20 +608,30 @@
 
     /* Drop zone */
     .drop-zone {
-      border: 2px dashed var(--border);
+      border: 2px dashed rgba(255, 255, 255, 0.2);
       border-radius: var(--radius-lg);
       margin: 20px 24px;
       padding: 40px 24px;
       text-align: center;
       cursor: pointer;
-      transition: var(--transition);
-      background: var(--bg-elevated);
+      transition: all 0.3s ease;
+      background: rgba(30, 33, 48, 0.4);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
-    .drop-zone:hover, .drop-zone.drag-over {
+    .drop-zone:hover {
+      border-color: rgba(147, 51, 234, 0.5);
+      background: rgba(147, 51, 234, 0.1);
+      transform: scale(1.01);
+    }
+    .drop-zone.drag-active {
       border-color: var(--border-active);
-      background: var(--accent-glow);
+      background: rgba(147, 51, 234, 0.2);
+      transform: scale(1.02);
+      box-shadow: 0 0 30px rgba(147, 51, 234, 0.2);
     }
-    .drop-zone .drop-icon { font-size: 36px; margin-bottom: 10px; }
+    .drop-zone .drop-icon { font-size: 36px; margin-bottom: 10px; transition: transform 0.3s ease; }
+    .drop-zone.drag-active .drop-icon { transform: scale(1.2); }
     .drop-zone .drop-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
     .drop-zone .drop-sub { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
     .drop-zone .drop-types { font-size: 11px; color: var(--text-muted); margin-top: 8px; font-family: 'JetBrains Mono', monospace; }
@@ -861,8 +958,8 @@
     .btn-download { width: 100%; padding: 10px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary); font-weight: 600; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; margin-top: 8px; font-family: 'Inter', sans-serif; }
     .btn-download:hover { background: var(--border); }
     .btn-download:disabled { opacity: 0.5; cursor: not-allowed; }
-    .download-progress-container { width: 100%; height: 6px; background: var(--bg-base); border-radius: 4px; overflow: hidden; margin-top: 12px; display: none; }
-    .download-progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
+    .download-progress-container { width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-top: 12px; }
+    .download-progress-fill { height: 100%; background: linear-gradient(90deg, #a855f7, #ec4899); width: 0%; transition: width 0.3s; box-shadow: 0 0 10px rgba(236,72,153,0.5); }
     .download-status { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 6px; display: none; }
   </style>
 </head>
@@ -1024,8 +1121,9 @@
     </div>
 
     <!-- ── Knowledge Graph panel ────────────────────────────── -->
-    <div class="panel" id="panelGraph">
-      <div id="kgContainer" style="width: 100%; height: 100%; min-height: 500px; background: var(--bg-surface);"></div>
+    <div class="panel" id="panelGraph" style="position: relative;">
+      <div id="kgContainer" class="immersive" style="width: 100%; height: 100%; min-height: 500px;"></div>
+      <div id="kgTooltip" class="glass-tooltip"></div>
     </div>
 
     <!-- ── Stats panel ──────────────────────────────────── -->
@@ -1121,6 +1219,19 @@
 <script>
   // ── Config ──────────────────────────────────────────────
   const API = 'http://localhost:8000';
+
+  // Configure Marked to use Highlight.js and add Copy button
+  if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
+    const renderer = new marked.Renderer();
+    renderer.code = function(code, language) {
+      const validLang = (language && hljs.getLanguage(language)) ? language : 'plaintext';
+      const highlighted = hljs.highlight(code, { language: validLang }).value;
+      // encode code so it can be safely passed to inline onclick handler
+      const encodedCode = encodeURIComponent(code).replace(/'/g, "\\'");
+      return `<pre><button class="copy-code-btn" onclick="navigator.clipboard.writeText(decodeURIComponent('${encodedCode}')).then(() => { this.textContent = 'Copied!'; setTimeout(() => this.textContent = 'Copy', 2000); })">Copy</button><code class="hljs ${validLang}">${highlighted}</code></pre>`;
+    };
+    marked.setOptions({ renderer: renderer });
+  }
 
   // ── State ───────────────────────────────────────────────
   let isLoading = false;
@@ -1227,13 +1338,58 @@
       };
       
       const options = {
-        nodes: { shape: 'dot', size: 16, font: { size: 14, color: '#111' }, color: { background: '#fff', border: '#111' } },
-        edges: { font: { size: 10, align: 'middle' }, color: '#9ca3af', arrows: { to: { enabled: true, scaleFactor: 0.5 } } },
+        interaction: { hover: true, tooltipDelay: 100 },
+        nodes: { 
+          shape: 'dot', 
+          size: 16, 
+          font: { size: 14, color: '#e2e8f0', strokeWidth: 0 }, 
+          color: { 
+            background: 'rgba(147, 51, 234, 0.2)', 
+            border: '#9333ea',
+            hover: { background: 'rgba(147, 51, 234, 0.5)', border: '#c084fc' }
+          },
+          shadow: { enabled: true, color: 'rgba(147, 51, 234, 0.8)', size: 15, x: 0, y: 0 }
+        },
+        edges: { 
+          font: { size: 11, align: 'middle', color: '#9ca3af', strokeWidth: 0 }, 
+          color: { color: 'rgba(147, 51, 234, 0.3)', hover: '#a855f7' }, 
+          arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+          smooth: { type: 'continuous' }
+        },
         physics: { stabilization: false, barnesHut: { springLength: 200 } }
       };
       
       if (kgNetwork) kgNetwork.destroy();
       kgNetwork = new vis.Network(container, graphData, options);
+
+      // Tooltip logic
+      const tooltip = document.getElementById('kgTooltip');
+      kgNetwork.on("hoverNode", function (params) {
+        const nodeId = params.node;
+        const nodePosition = kgNetwork.canvasToDOM(kgNetwork.getPositions([nodeId])[nodeId]);
+        const nodeData = nodesData.find(n => n.id === nodeId);
+        
+        if (nodeData) {
+          tooltip.innerHTML = `
+            <div class="tt-title">${nodeData.label}</div>
+            <div class="tt-type">${nodeData.group || 'Entity'}</div>
+            <div style="color: #9ca3af">ID: ${nodeData.id}</div>
+          `;
+          tooltip.style.left = nodePosition.x + 'px';
+          tooltip.style.top = (nodePosition.y - 15) + 'px';
+          tooltip.classList.add('visible');
+        }
+      });
+      
+      kgNetwork.on("blurNode", function () {
+        tooltip.classList.remove('visible');
+      });
+      kgNetwork.on("zoom", function () {
+        tooltip.classList.remove('visible');
+      });
+      kgNetwork.on("dragStart", function () {
+        tooltip.classList.remove('visible');
+      });
     } catch (e) {
       console.error("Failed to load Knowledge Graph", e);
     }
@@ -1645,11 +1801,11 @@
   }
 
   // ── Drag & Drop ──────────────────────────────────────────
-  function onDragOver(e) { e.preventDefault(); document.getElementById('dropZone').classList.add('drag-over'); }
-  function onDragLeave(e) { document.getElementById('dropZone').classList.remove('drag-over'); }
+  function onDragOver(e) { e.preventDefault(); document.getElementById('dropZone').classList.add('drag-active'); }
+  function onDragLeave(e) { document.getElementById('dropZone').classList.remove('drag-active'); }
   async function onDrop(e) {
     e.preventDefault();
-    document.getElementById('dropZone').classList.remove('drag-over');
+    document.getElementById('dropZone').classList.remove('drag-active');
     const files = [];
     if (e.dataTransfer.items) {
       for (let i = 0; i < e.dataTransfer.items.length; i++) {
