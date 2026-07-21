@@ -40,7 +40,7 @@ sys.path.insert(0, str(_ROOT.parent))
 
 from rag_pipeline import get_config
 from rag_pipeline.core.embedder import Embedder
-from rag_pipeline.core.model_catalog import get_catalog, build_recommendations, FALLBACK_CLOUD_MODELS
+from rag_pipeline.core.model_catalog import get_catalog, build_recommendations
 from rag_pipeline.core.vectorstore import get_vector_store
 from rag_pipeline.core.retriever import Retriever
 from rag_pipeline.core.generator import Generator, build_prompt_preview, extract_kg_relationships
@@ -237,7 +237,7 @@ async def health():
 
 @app.get("/models", tags=["System"])
 async def models():
-    """List all locally available Ollama models, categorizing cloud vs local."""
+    """List all locally available Ollama models."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{_OLLAMA_HOST}/api/tags")
@@ -251,7 +251,6 @@ async def models():
                     continue
                 valid_models.append({
                     "name": name,
-                    "is_cloud": name.endswith(":cloud") or ":cloud" in name or name.endswith("-cloud") or "-cloud" in name,
                     "size": m.get("size"),
                     "modified_at": m.get("modified_at")
                 })
@@ -321,17 +320,6 @@ async def system_recommendations():
         tier = "standard"
     else:
         tier = "heavy"
-        
-    cloud_models = [
-        {
-            "name": m["model_identifier"],
-            "desc": m["description"],
-            "tags": m["labels"],
-            "size": "Cloud"
-        }
-        for m in FALLBACK_CLOUD_MODELS
-        if m["model_identifier"] not in downloaded_models
-    ][:10]
 
     return {
         "hardware": {
@@ -339,8 +327,7 @@ async def system_recommendations():
             "cpu_cores": cpu_cores
         },
         "tier": tier,
-        "models": models,
-        "cloud_models": cloud_models
+        "models": models
     }
 
 @app.post("/ollama/pull", tags=["System"])

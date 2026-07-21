@@ -39,19 +39,6 @@ FALLBACK_MODELS = [
     {"model_identifier": "mistral-nemo:12b", "description": "Large context window, great intelligence, fast", "labels": ["12B"], "pulls": 1200000, "capability": "general"}
 ]
 
-FALLBACK_CLOUD_MODELS = [
-    {"model_identifier": "gpt-oss:20b-cloud", "description": "Highly capable general purpose cloud model", "labels": ["20B", "Cloud"], "pulls": 5000000, "capability": "general"},
-    {"model_identifier": "deepseek-v3.1:671b-cloud", "description": "Massive reasoning model hosted in the cloud", "labels": ["671B", "Cloud"], "pulls": 2000000, "capability": "reasoning"},
-    {"model_identifier": "qwen3-coder:480b-cloud", "description": "Unmatched coding capability without local RAM limits", "labels": ["480B", "Cloud"], "pulls": 1500000, "capability": "coding"},
-    {"model_identifier": "kimi-k2:1t-cloud", "description": "Trillion parameter model for deep long-context tasks", "labels": ["1T", "Cloud"], "pulls": 1000000, "capability": "long context"},
-    {"model_identifier": "gemma4:cloud", "description": "Google's latest cloud-optimized model", "labels": ["Cloud"], "pulls": 800000, "capability": "general"},
-    {"model_identifier": "qwen3.5:cloud", "description": "Fast and responsive general assistant", "labels": ["Cloud"], "pulls": 900000, "capability": "assistant"},
-    {"model_identifier": "glm-5.1:cloud", "description": "Powerful multi-lingual capabilities", "labels": ["Cloud"], "pulls": 500000, "capability": "multi-lingual"},
-    {"model_identifier": "minimax-m2.7:cloud", "description": "Specialized reasoning and logic model", "labels": ["Cloud"], "pulls": 400000, "capability": "logic"},
-    {"model_identifier": "nemotron-3-super:cloud", "description": "High-fidelity generation model from NVIDIA", "labels": ["Cloud"], "pulls": 600000, "capability": "creative"},
-    {"model_identifier": "kimi-k2.7-code:cloud", "description": "Advanced coding specialist from Kimi", "labels": ["Cloud"], "pulls": 700000, "capability": "coding"}
-]
-
 def fetch_ollama_catalog(limit=250):
     """Fetch the current Ollama model library from the community-maintained
     ollamadb.dev mirror. Raises requests.RequestException on failure."""
