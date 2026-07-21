@@ -1072,6 +1072,10 @@
             <h3 style="margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Recommended Models</h3>
             <div id="modelsGrid" class="models-grid"></div>
             
+            <h3 style="margin-top: 40px; margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Ollama Cloud Models (Zero RAM Required)</h3>
+            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">If your device lacks the RAM to run massive models locally, you can use these incredibly fast cloud models hosted directly by Ollama. Just click download to use them instantly!</p>
+            <div id="cloudModelsGrid" class="models-grid"></div>
+
             <h3 style="margin-top: 40px; margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Pull Custom Model</h3>
             <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">Want to use a specific model or a cloud model? Type the exact name from the Ollama library (e.g., <code>gpt-oss:20b:cloud</code>) to pull it.</p>
             <div style="display: flex; gap: 10px; align-items: center; max-width: 500px;">
@@ -2093,6 +2097,34 @@
         `;
         grid.appendChild(card);
       });
+
+      const cloudGrid = document.getElementById('cloudModelsGrid');
+      if (cloudGrid && data.cloud_models) {
+        cloudGrid.innerHTML = '';
+        data.cloud_models.forEach(model => {
+          const card = document.createElement('div');
+          card.className = 'model-card';
+          card.innerHTML = `
+            <div class="model-card-header">
+              <div class="model-name">${model.name}</div>
+              <div class="model-size">${model.size}</div>
+            </div>
+            <div class="model-desc">${model.desc}</div>
+            <div class="model-tags">
+              ${model.tags.map(t => `<span class="model-tag">${t}</span>`).join('')}
+            </div>
+            <button class="btn-download" id="dlBtn-${model.name.replace(/:/g,'-')}" onclick="downloadModel('${model.name}')">Download</button>
+            <div id="dlWrapper-${model.name.replace(/:/g,'-')}" style="display:none; align-items:center; gap:8px;">
+              <div class="download-progress-container" id="dlProgC-${model.name.replace(/:/g,'-')}" style="flex-grow:1; margin:0;">
+                <div class="download-progress-fill" id="dlProgF-${model.name.replace(/:/g,'-')}"></div>
+              </div>
+              <button class="btn-cancel" onclick="cancelDownload('${model.name}')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
+            </div>
+            <div class="download-status" id="dlStat-${model.name.replace(/:/g,'-')}">Preparing...</div>
+          `;
+          cloudGrid.appendChild(card);
+        });
+      }
     } catch (e) {
       console.error('Failed to fetch recommendations:', e);
       document.getElementById('hardwareText').textContent = 'Unable to detect system hardware.';
