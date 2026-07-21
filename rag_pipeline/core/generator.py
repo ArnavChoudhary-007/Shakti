@@ -356,7 +356,7 @@ class Generator:
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout, httpx.HTTPStatusError) as e:
             logger.error(f"Ollama connection/HTTP error: {e}")
             if "cloud" in resolved_model.lower():
-                yield "\n[Error: This model requires an internet connection or authorization. Try a local model instead.]"
+                yield "\n[Error: This model requires authorization. Please run `ollama signin` in your terminal to connect to Ollama Cloud, or try a local model instead.]"
             else:
                 yield f"\n[Error connecting to Ollama: {e}]"
             return
