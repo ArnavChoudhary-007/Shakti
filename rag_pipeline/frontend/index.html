@@ -1072,74 +1072,20 @@
             <h3 style="margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Recommended Models</h3>
             <div id="modelsGrid" class="models-grid"></div>
             
-            <h3 style="margin-top: 40px; margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Ollama Cloud Models (Zero RAM Required)</h3>
-            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">If your device lacks the RAM to run massive models locally, you can use these incredibly fast cloud models hosted directly by Ollama. Just click download to use them instantly!</p>
-            <div class="models-grid">
-              
-              <!-- Llama 3.3 70B Cloud -->
-              <div class="model-card">
-                <div class="model-card-header">
-                  <div class="model-name">Llama 3.3 70B</div>
-                  <div class="model-size">Cloud</div>
-                </div>
-                <div class="model-desc">Meta's massive open-weights model hosted by Ollama. Perfect for heavy logic tasks, deep reasoning, and complex coding.</div>
-                <div class="model-tags">
-                  <span class="model-tag">70B Parameters</span>
-                  <span class="model-tag">Heavy Logic</span>
-                </div>
-                <button class="btn-download" id="dlBtn-llama3.3-70b-cloud" style="width: 100%;" onclick="downloadModel('llama3.3:70b-cloud')">Add to Ollama</button>
-                <div id="dlWrapper-llama3.3-70b-cloud" style="display:none; align-items:center; gap:8px; margin-top:8px;">
-                  <div class="download-progress-container" id="dlProgC-llama3.3-70b-cloud" style="flex-grow:1; margin:0;">
-                    <div class="download-progress-fill" id="dlProgF-llama3.3-70b-cloud"></div>
-                  </div>
-                  <button class="btn-cancel" onclick="cancelDownload('llama3.3:70b-cloud')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
-                </div>
-                <div class="download-status" id="dlStat-llama3.3-70b-cloud" style="display:none; font-size:12px; color:var(--text-secondary); margin-top:4px;">Preparing...</div>
-              </div>
-
-              <!-- Qwen 2.5 72B Cloud -->
-              <div class="model-card">
-                <div class="model-card-header">
-                  <div class="model-name">Qwen 2.5 72B</div>
-                  <div class="model-size">Cloud</div>
-                </div>
-                <div class="model-desc">Incredible 72-billion parameter model optimized for advanced instruction following and world-class coding ability.</div>
-                <div class="model-tags">
-                  <span class="model-tag">72B Parameters</span>
-                  <span class="model-tag">World-class Coding</span>
-                </div>
-                <button class="btn-download" id="dlBtn-qwen2.5-72b-cloud" style="width: 100%;" onclick="downloadModel('qwen2.5:72b-cloud')">Add to Ollama</button>
-                <div id="dlWrapper-qwen2.5-72b-cloud" style="display:none; align-items:center; gap:8px; margin-top:8px;">
-                  <div class="download-progress-container" id="dlProgC-qwen2.5-72b-cloud" style="flex-grow:1; margin:0;">
-                    <div class="download-progress-fill" id="dlProgF-qwen2.5-72b-cloud"></div>
-                  </div>
-                  <button class="btn-cancel" onclick="cancelDownload('qwen2.5:72b-cloud')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
-                </div>
-                <div class="download-status" id="dlStat-qwen2.5-72b-cloud" style="display:none; font-size:12px; color:var(--text-secondary); margin-top:4px;">Preparing...</div>
-              </div>
-              
-              <!-- DeepSeek R1 67B Cloud -->
-              <div class="model-card">
-                <div class="model-card-header">
-                  <div class="model-name">DeepSeek R1 67B</div>
-                  <div class="model-size">Cloud</div>
-                </div>
-                <div class="model-desc">Specialized reasoning and math model that thinks deeply before responding. Hosted instantly via Ollama cloud.</div>
-                <div class="model-tags">
-                  <span class="model-tag">67B Parameters</span>
-                  <span class="model-tag">Deep Reasoning</span>
-                </div>
-                <button class="btn-download" id="dlBtn-deepseek-r1-67b-cloud" style="width: 100%;" onclick="downloadModel('deepseek-r1:67b-cloud')">Add to Ollama</button>
-                <div id="dlWrapper-deepseek-r1-67b-cloud" style="display:none; align-items:center; gap:8px; margin-top:8px;">
-                  <div class="download-progress-container" id="dlProgC-deepseek-r1-67b-cloud" style="flex-grow:1; margin:0;">
-                    <div class="download-progress-fill" id="dlProgF-deepseek-r1-67b-cloud"></div>
-                  </div>
-                  <button class="btn-cancel" onclick="cancelDownload('deepseek-r1:67b-cloud')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
-                </div>
-                <div class="download-status" id="dlStat-deepseek-r1-67b-cloud" style="display:none; font-size:12px; color:var(--text-secondary); margin-top:4px;">Preparing...</div>
-              </div>
-
+            <h3 style="margin-top: 40px; margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Pull Custom Model</h3>
+            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">Want to use a specific model or a cloud model? Type the exact name from the Ollama library (e.g., <code>gpt-oss:20b:cloud</code>) to pull it.</p>
+            <div style="display: flex; gap: 10px; align-items: center; max-width: 500px;">
+              <input type="text" id="customModelInput" placeholder="Model name (e.g. gpt-oss:20b:cloud)..." style="flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: 'JetBrains Mono', monospace; outline: none;">
+              <button class="btn-download" id="dlBtn-custom" onclick="downloadCustomModel()" style="padding: 10px 20px;">Pull Model</button>
             </div>
+            <div id="dlWrapper-custom" style="display:none; align-items:center; gap:8px; margin-top:12px; max-width: 500px;">
+              <div class="download-progress-container" id="dlProgC-custom" style="flex-grow:1; margin:0;">
+                <div class="download-progress-fill" id="dlProgF-custom"></div>
+              </div>
+              <button class="btn-cancel" onclick="cancelDownload(document.getElementById('customModelInput').value)" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
+            </div>
+            <div class="download-status" id="dlStat-custom" style="display:none; font-size:12px; color:var(--text-secondary); margin-top:4px;">Preparing...</div>
+
           </div>
         </div>
       </div>
@@ -2153,8 +2099,33 @@
     }
   }
 
+  function downloadCustomModel() {
+    const input = document.getElementById('customModelInput');
+    const modelName = input.value.trim();
+    if (!modelName) {
+      alert("Please enter a model name to pull.");
+      return;
+    }
+    
+    // Wire up the dynamic UI elements to mimic standard cards
+    const idSafe = 'custom';
+    const btn = document.getElementById(`dlBtn-${idSafe}`);
+    const wrapper = document.getElementById(`dlWrapper-${idSafe}`);
+    const progF = document.getElementById(`dlProgF-${idSafe}`);
+    const stat = document.getElementById(`dlStat-${idSafe}`);
+
+    btn.style.display = 'none';
+    wrapper.style.display = 'flex';
+    stat.style.display = 'block';
+    stat.textContent = 'Preparing...';
+    progF.style.width = '0%';
+    
+    // Delegate actual pulling logic to the main download routine
+    _executeDownload(modelName, idSafe, btn, wrapper, progF, stat, true);
+  }
+
   async function downloadModel(modelName) {
-    const idSafe = modelName.replace(':','-');
+    const idSafe = modelName.replace(/:/g,'-');
     const btn = document.getElementById(`dlBtn-${idSafe}`);
     const wrapper = document.getElementById(`dlWrapper-${idSafe}`);
     const progF = document.getElementById(`dlProgF-${idSafe}`);
@@ -2164,14 +2135,18 @@
     wrapper.style.display = 'flex';
     stat.style.display = 'block';
     
-    downloadControllers[idSafe] = new AbortController();
+    _executeDownload(modelName, idSafe, btn, wrapper, progF, stat, false);
+  }
+
+  async function _executeDownload(modelName, idSafe, btn, wrapper, progF, stat, isCustom) {
+    downloadControllers[modelName] = new AbortController();
 
     try {
       const res = await fetch(`${API}/ollama/pull`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: modelName }),
-        signal: downloadControllers[idSafe].signal
+        signal: downloadControllers[modelName].signal
       });
 
       if (!res.ok) throw new Error('Download request failed');
@@ -2248,9 +2223,13 @@
   }
 
   function cancelDownload(modelName) {
-    const idSafe = modelName.replace(':','-');
-    if (downloadControllers[idSafe]) {
-      downloadControllers[idSafe].abort();
+    if (downloadControllers[modelName]) {
+      downloadControllers[modelName].abort();
+    } else {
+      const idSafe = modelName.replace(/:/g,'-');
+      if (downloadControllers[idSafe]) {
+        downloadControllers[idSafe].abort();
+      }
     }
   }
 
