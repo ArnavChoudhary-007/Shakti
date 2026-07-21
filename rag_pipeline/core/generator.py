@@ -353,12 +353,24 @@ class Generator:
                                 break
                         except json.JSONDecodeError:
                             continue
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout, httpx.HTTPStatusError) as e:
-            logger.error(f"Ollama connection/HTTP error: {e}")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Ollama HTTP error: {e}")
             if "cloud" in resolved_model.lower():
-                yield "\n[Error: This model requires authorization. Please run `ollama signin` in your terminal to connect to Ollama Cloud, or try a local model instead.]"
-            else:
-                yield f"\n[Error connecting to Ollama: {e}]"
+                if e.response.status_code == 401:
+                    yield "\n[Error: This model requires authorization. Please run `ollama signin` in your terminal to connect to Ollama Cloud.]"
+                elif e.response.status_code == 404:
+                    yield f"\n[Error: The model '{resolved_model}' was not found on Ollama Cloud. Please try a different cloud model or use a local one.]"
+                else:
+                    yield f"\n[Error: Ollama Cloud returned HTTP {e.response.status_code}.]"
+                return
+            yield f"\n[Error connecting to Ollama: {e}]"
+            return
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+            logger.error(f"Ollama connection error: {e}")
+            if "cloud" in resolved_model.lower():
+                yield "\n[Error: This model requires an internet connection or authorization. Try a local model instead.]"
+                return
+            yield f"\n[Error connecting to Ollama: {e}]"
             return
         except Exception as e:
             logger.error(f"Ollama request failed: {e}")
