@@ -328,65 +328,22 @@ class Generator:
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                if resolved_model.startswith("groq/") or resolved_model.startswith("together/"):
-                    import os
-                    provider, actual_model = resolved_model.split("/", 1)
-                    api_key = os.environ.get(f"{provider.upper()}_API_KEY", "")
-                    
-                    if provider == "groq":
-                        url = "https://api.groq.com/openai/v1/chat/completions"
-                    else:
-                        url = "https://api.together.xyz/v1/chat/completions"
-
-                    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-                    payload = {
-                        "model": actual_model,
-                        "messages": [
-                            {"role": "system", "content": _SYSTEM_PROMPT},
-                            {"role": "user", "content": prompt}
-                        ],
+                async with client.stream(
+                    "POST",
+                    f"{self.ollama_host}/api/generate",
+                    json={
+                        "model": resolved_model,
+                        "system": _SYSTEM_PROMPT,
+                        "prompt": prompt,
                         "stream": True,
-                    }
-                    async with client.stream("POST", url, json=payload, headers=headers) as response:
-                        response.raise_for_status()
-                        async for line in response.aiter_lines():
-                            line = line.strip()
-                            if not line:
-                                continue
-                            if line.startswith("data: "):
-                                line = line[6:]
-                            if line == "[DONE]":
-                                break
-                            try:
-                                data = json.loads(line)
-                                if "choices" in data and data["choices"]:
-                                    delta = data["choices"][0].get("delta", {})
-                                    token = delta.get("content", "")
-                                    if token:
-                                        token = clean_formatting_artifacts(token)
-                                        full_answer.append(token)
-                                        yield token
-                            except json.JSONDecodeError:
-                                continue
-                else:
-                    async with client.stream(
-                        "POST",
-                        f"{self.ollama_host}/api/generate",
-                        json={
-                            "model": resolved_model,
-                            "system": _SYSTEM_PROMPT,
-                            "prompt": prompt,
-                            "stream": True,
-                        },
-                    ) as response:
-                        response.raise_for_status()
-                        async for line in response.aiter_lines():
-                            if not line.strip():
-                                continue
-                            try:
-                                data = json.loads(line)
-                            except json.JSONDecodeError:
-                                continue
+                    },
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            data = json.loads(line)
                             token = data.get("response", "")
                             if token:
                                 token = clean_formatting_artifacts(token)
@@ -394,13 +351,18 @@ class Generator:
                                 yield token
                             if data.get("done", False):
                                 break
-        except httpx.TimeoutException:
-            logger.error(f"Ollama request timed out after {self.timeout}s")
-            yield "\n[Error: The AI model took too long to respond. It may be loading into memory. Please try your request again in a moment.]"
+                        except json.JSONDecodeError:
+                            continue
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout, httpx.HTTPStatusError) as e:
+            logger.error(f"Ollama connection/HTTP error: {e}")
+            if "cloud" in resolved_model.lower():
+                yield "\n[Error: This model requires an internet connection or authorization. Try a local model instead.]"
+            else:
+                yield f"\n[Error connecting to Ollama: {e}]"
             return
         except Exception as e:
             logger.error(f"Ollama request failed: {e}")
-            yield f"\n[Error connecting to Ollama: {e}]"
+            yield f"\n[Error generating response: {e}]"
             return
 
         # Post-process citations + structure and yield as sentinel
@@ -440,46 +402,24 @@ class Generator:
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                if resolved_model.startswith("groq/") or resolved_model.startswith("together/"):
-                    import os
-                    provider, actual_model = resolved_model.split("/", 1)
-                    api_key = os.environ.get(f"{provider.upper()}_API_KEY", "")
-                    
-                    if provider == "groq":
-                        url = "https://api.groq.com/openai/v1/chat/completions"
-                    else:
-                        url = "https://api.together.xyz/v1/chat/completions"
-
-                    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-                    payload = {
-                        "model": actual_model,
-                        "messages": [
-                            {"role": "system", "content": _SYSTEM_PROMPT},
-                            {"role": "user", "content": prompt}
-                        ],
+                resp = await client.post(
+                    f"{self.ollama_host}/api/generate",
+                    json={
+                        "model": resolved_model,
+                        "system": _SYSTEM_PROMPT,
+                        "prompt": prompt,
                         "stream": False,
-                    }
-                    resp = await client.post(url, json=payload, headers=headers)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    if "choices" in data and data["choices"]:
-                        full_answer = data["choices"][0].get("message", {}).get("content", "")
-                else:
-                    resp = await client.post(
-                        f"{self.ollama_host}/api/generate",
-                        json={
-                            "model": resolved_model,
-                            "system": _SYSTEM_PROMPT,
-                            "prompt": prompt,
-                            "stream": False,
-                        },
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    full_answer = data.get("response", "")
-        except httpx.TimeoutException:
-            logger.error(f"Ollama request timed out after {self.timeout}s")
-            full_answer = "[Error: The AI model took too long to respond. It may be loading into memory. Please try your request again in a moment.]"
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                full_answer = data.get("response", "")
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+            logger.error(f"Ollama connection error: {e}")
+            if "cloud" in resolved_model.lower():
+                full_answer = "[Error: This model requires an internet connection. Try a local model instead, or check your connection.]"
+            else:
+                full_answer = f"[Error connecting to Ollama: {e}]"
         except Exception as e:
             logger.error(f"Ollama request failed: {e}")
             full_answer = f"[Error connecting to Ollama: {e}]"
