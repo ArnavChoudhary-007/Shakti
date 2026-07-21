@@ -31,6 +31,7 @@ import yaml
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # ── Path setup ────────────────────────────────────────────────
@@ -143,6 +144,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+os.makedirs(_ROOT / "uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_ROOT / "uploads")), name="uploads")
 
 
 # ── Request / response models ─────────────────────────────────
@@ -483,20 +487,20 @@ async def ingest(
     Ingest a single file: extract → normalise → chunk → embed → store.
     Also writes structured data (invoices, ledger rows) to SQLite.
     """
-    # Save upload to a temp path
-    import tempfile, shutil
-    suffix = Path(file.filename).suffix if file.filename else ".bin"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = tmp.name
+    # Save upload to permanent uploads directory
+    import shutil
+    
+    # Strip any directory path that the browser might send (e.g. from folder uploads)
+    file_name = Path(file.filename).name if file.filename else "unknown.bin"
+    upload_path = _ROOT / "uploads" / file_name
+    
+    # Ensure parent directories exist
+    upload_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(upload_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
 
-    try:
-        return await _ingest_file_path(tmp_path, original_name=file.filename or "unknown", workspace_id=workspace_id)
-    finally:
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
+    return await _ingest_file_path(str(upload_path), original_name=file_name, workspace_id=workspace_id)
 
 
 @app.post("/ingest_path", response_model=IngestResponse, tags=["Ingestion"])

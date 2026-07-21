@@ -70,6 +70,22 @@ Formatting rules — follow them exactly:
    Do not add any other words.
 8. Do NOT add a "Sources" section — that is generated separately.
 9. Do NOT restate these instructions in your answer.
+
+When writing chemical formulas, equations, or any scientific notation, use plain
+Unicode characters only:
+- Subscripts: ₀ ₁ ₂ ₃ ₄ ₅ ₆ ₇ ₈ ₉
+- Superscripts for ions/charges: ⁺ ⁻ ²⁺ ³⁺ etc.
+- Reaction arrows: →
+- Fractions as simple text: 1/2, not \frac{1}{2}
+
+Never use LaTeX syntax under any circumstance — no dollar signs, no \text{},
+\frac{}, \rightarrow, or any backslash commands.
+
+Example of CORRECT formatting:
+2Fe(OH)₂ + ½O₂ + H₂O → Fe₂O₃·3H₂O
+
+Example of INCORRECT formatting — do not produce output like this:
+$2\text{Fe(OH)}_2 + \frac{1}{2}\text{O}_2 + \text{H}_2\text{O} \rightarrow \text{Fe}_2\text{O}_3 \cdot 3\text{H}_2\text{O}$
 """
 
 
@@ -108,6 +124,40 @@ def _build_prompt(query: str, chunks: List[Dict[str, Any]]) -> str:
         f"Question: {query}\n\n"
         f"Answer:"
     )
+
+
+# ── Formatting Guarantee ──────────────────────────────────────
+
+_LATEX_CLEANUP_RULES = [
+    (r"\\text\{([^}]*)\}", r"\1"),                                    # \text{Fe} -> Fe
+    (r"\\frac\{(\d+)\}\{(\d+)\}", lambda m: f"{m.group(1)}/{m.group(2)}"),  # \frac{1}{2} -> 1/2
+    (r"\\rightarrow", "→"),
+    (r"\\to\b", "→"),
+    (r"\\cdot", "·"),
+    (r"\\left|\\right", ""),
+    (r"\$\$([^$]+)\$\$", r"\1"),                                        # strip block $$ delimiters
+    (r"\$([^$]*?(?:[_^\\]|=)[^$]*?)\$", r"\1"),                         # strip inline $ only if it contains math symbols
+    (r"\\,", " "),
+]
+
+_SUBSCRIPT_MAP = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+_SUPERSCRIPT_MAP = str.maketrans("0123456789+-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻")
+
+def clean_formatting_artifacts(text: str) -> str:
+    for pattern, repl in _LATEX_CLEANUP_RULES:
+        text = re.sub(pattern, repl, text)
+
+    # Convert remaining LaTeX-style subscript/superscript markers (_2, ^{2+}) to Unicode
+    text = re.sub(r"_\{\s*(\d+)\s*\}", lambda m: m.group(1).translate(_SUBSCRIPT_MAP), text)
+    text = re.sub(r"_(\d+)", lambda m: m.group(1).translate(_SUBSCRIPT_MAP), text)
+    
+    text = re.sub(r"\^\{\s*([\d+-]+)\s*\}", lambda m: m.group(1).translate(_SUPERSCRIPT_MAP), text)
+    text = re.sub(r"\^([\d+-]+)", lambda m: m.group(1).translate(_SUPERSCRIPT_MAP), text)
+
+    if "\\" in text or "$" in text:
+        logger.warning(f"Possible unhandled LaTeX formatting remains: {text}")
+
+    return text
 
 
 # ── Structure analysis ────────────────────────────────────────
@@ -313,6 +363,7 @@ class Generator:
                                     delta = data["choices"][0].get("delta", {})
                                     token = delta.get("content", "")
                                     if token:
+                                        token = clean_formatting_artifacts(token)
                                         full_answer.append(token)
                                         yield token
                             except json.JSONDecodeError:
@@ -338,6 +389,7 @@ class Generator:
                                 continue
                             token = data.get("response", "")
                             if token:
+                                token = clean_formatting_artifacts(token)
                                 full_answer.append(token)
                                 yield token
                             if data.get("done", False):
@@ -353,6 +405,7 @@ class Generator:
 
         # Post-process citations + structure and yield as sentinel
         answer_text = "".join(full_answer)
+        answer_text = clean_formatting_artifacts(answer_text)
         citations = _extract_citations(answer_text, chunks)
         structure = analyze_structure(answer_text)
         citations_payload = {
@@ -431,6 +484,7 @@ class Generator:
             logger.error(f"Ollama request failed: {e}")
             full_answer = f"[Error connecting to Ollama: {e}]"
 
+        full_answer = clean_formatting_artifacts(full_answer)
         citations = _extract_citations(full_answer, chunks)
         structure = analyze_structure(full_answer)
         return CitationResult(

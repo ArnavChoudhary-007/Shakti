@@ -1564,7 +1564,7 @@
         const tagClass = 'tag-' + (c.source_type || 'pdf');
         const previewText = c.full_text ? (c.full_text.length > 200 ? c.full_text.substring(0, 200) + '...' : c.full_text) : (c.snippet || '');
         citDiv.innerHTML += `
-          <div class="citation-card" onclick="openCitationViewer(this.closest('.bubble')._citations, ${c.index})">
+          <div class="citation-card" onclick="openOriginalFile(this.closest('.bubble')._citations, ${c.index})">
             <div class="citation-num">${c.index}</div>
             <div class="citation-body">
               <div class="citation-file">
@@ -1980,6 +1980,51 @@
       }
     }
   });
+
+  function openOriginalFile(citations, citationIndex) {
+    if (!citations || citations.length === 0) return;
+    const arrayIndex = citations.findIndex(c => c.index === citationIndex);
+    const cit = arrayIndex >= 0 ? citations[arrayIndex] : null;
+    
+    if (cit && cit.file_name) {
+      let url = `http://localhost:8000/uploads/${encodeURIComponent(cit.file_name)}`;
+      
+      if (cit.file_name.toLowerCase().endsWith('.pdf')) {
+        let params = [];
+        
+        if (cit.location) {
+          const pageMatch = cit.location.match(/page\s+(\d+)/i);
+          if (pageMatch) {
+            params.push(`page=${pageMatch[1]}`);
+          }
+        }
+        
+        const textTarget = cit.snippet || cit.full_text || "";
+        if (textTarget) {
+          // Use Text Fragment API to highlight the entire block of text!
+          // We take the first 5 words and the last 5 words to create a robust start,end range
+          const cleanText = textTarget.replace(/[^a-zA-Z0-9]/g, ' ').trim();
+          const words = cleanText.split(/\s+/).filter(w => w.length > 0);
+          
+          if (words.length > 10) {
+            const start = words.slice(0, 5).join(' ');
+            const end = words.slice(-5).join(' ');
+            params.push(`:~:text=${encodeURIComponent(start)},${encodeURIComponent(end)}`);
+          } else if (words.length > 0) {
+            params.push(`:~:text=${encodeURIComponent(words.join(' '))}`);
+          }
+        }
+        
+        if (params.length > 0) {
+          url += `#${params.join('&')}`;
+        }
+      }
+      
+      window.open(url, '_blank');
+    } else {
+      openCitationViewer(citations, citationIndex);
+    }
+  }
 
   function openCitationViewer(citations, citationIndex) {
     if (!citations || citations.length === 0) return;
