@@ -209,7 +209,11 @@ async def health():
     except Exception as e:
         ollama_status = f"error: {e}"
 
-    # Cloud models logic removed as per Ollama-only requirement
+    # Always ensure Ollama cloud models are listed
+    cloud_models = ["llama3.3:70b-cloud", "qwen2.5:72b-cloud", "deepseek-r1:67b-cloud"]
+    for cm in cloud_models:
+        if cm not in available_models:
+            available_models.append(cm)
 
     embedder_status = "ok"
     try:
@@ -255,6 +259,18 @@ async def models():
                     "size": m.get("size"),
                     "modified_at": m.get("modified_at")
                 })
+            
+            # Always append Ollama's cloud models so they appear in the dropdown menu
+            cloud_models = ["llama3.3:70b-cloud", "qwen2.5:72b-cloud", "deepseek-r1:67b-cloud"]
+            for cm in cloud_models:
+                if not any(vm["name"] == cm for vm in valid_models):
+                    valid_models.append({
+                        "name": cm,
+                        "is_cloud": True,
+                        "size": None,
+                        "modified_at": None
+                    })
+                    
             return {"models": valid_models}
     except Exception as e:
         logger.error(f"Cannot reach Ollama: {e}")
