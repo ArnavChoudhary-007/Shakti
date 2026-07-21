@@ -209,11 +209,7 @@ async def health():
     except Exception as e:
         ollama_status = f"error: {e}"
 
-    # Always ensure Ollama cloud models are listed
-    cloud_models = ["llama3.3:70b-cloud", "qwen2.5:72b-cloud", "deepseek-r1:67b-cloud"]
-    for cm in cloud_models:
-        if cm not in available_models:
-            available_models.append(cm)
+    # Cloud models will be returned natively by /api/tags if they are pulled
 
     embedder_status = "ok"
     try:
@@ -255,22 +251,11 @@ async def models():
                     continue
                 valid_models.append({
                     "name": name,
-                    "is_cloud": name.endswith("-cloud") or ":cloud" in name,
+                    "is_cloud": name.endswith(":cloud") or ":cloud" in name or name.endswith("-cloud") or "-cloud" in name,
                     "size": m.get("size"),
                     "modified_at": m.get("modified_at")
                 })
             
-            # Always append Ollama's cloud models so they appear in the dropdown menu
-            cloud_models = ["llama3.3:70b-cloud", "qwen2.5:72b-cloud", "deepseek-r1:67b-cloud"]
-            for cm in cloud_models:
-                if not any(vm["name"] == cm for vm in valid_models):
-                    valid_models.append({
-                        "name": cm,
-                        "is_cloud": True,
-                        "size": None,
-                        "modified_at": None
-                    })
-                    
             return {"models": valid_models}
     except Exception as e:
         logger.error(f"Cannot reach Ollama: {e}")
@@ -351,25 +336,6 @@ async def pull_model(req: PullRequest):
     """Proxy the model pull request to Ollama and stream the JSON progress back."""
     async def stream_pull():
         try:
-            if "cloud" in req.model.lower():
-                # Simulate a cloud model registration by creating a lightweight tag in Ollama
-                # This ensures it shows up natively in /api/tags as requested
-                yield json.dumps({"status": "registering cloud endpoint"}) + "\n"
-                await asyncio.sleep(0.5)
-                yield json.dumps({"status": "downloading", "completed": 100, "total": 100}) + "\n"
-                
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"{_OLLAMA_HOST}/api/tags")
-                    base = "llama3.1:8b"
-                    if resp.status_code == 200 and resp.json().get("models"):
-                        base = resp.json()["models"][0]["name"]
-                    await client.post(
-                        f"{_OLLAMA_HOST}/api/create",
-                        json={"model": req.model, "modelfile": f"FROM {base}\nSYSTEM \"Ollama Cloud Model\""}
-                    )
-                yield json.dumps({"status": "success"}) + "\n"
-                return
-
             async with httpx.AsyncClient(timeout=None) as client:
                 async with client.stream("POST", f"{_OLLAMA_HOST}/api/pull", json={"model": req.model}) as resp:
                     resp.raise_for_status()
