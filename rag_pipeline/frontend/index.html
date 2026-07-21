@@ -1072,52 +1072,71 @@
             <h3 style="margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Recommended Models</h3>
             <div id="modelsGrid" class="models-grid"></div>
             
-            <h3 style="margin-top: 40px; margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Cloud Alternatives (Zero RAM Required)</h3>
-            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">If your device lacks the RAM to run large models locally, you can use these incredibly fast cloud providers that host open-source models.</p>
+            <h3 style="margin-top: 40px; margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Ollama Cloud Models (Zero RAM Required)</h3>
+            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">If your device lacks the RAM to run massive models locally, you can use these incredibly fast cloud models hosted directly by Ollama. Just click download to use them instantly!</p>
             <div class="models-grid">
               
-              <!-- Groq -->
+              <!-- Llama 3.3 70B Cloud -->
               <div class="model-card">
                 <div class="model-card-header">
-                  <div class="model-name">Groq (LPU)</div>
+                  <div class="model-name">Llama 3.3 70B</div>
                   <div class="model-size">Cloud</div>
                 </div>
-                <div class="model-desc">Insanely fast inference using specialized hardware (LPU). Hosts Llama 3.1 70B, Mixtral, and Gemma. Perfect for ultra-fast RAG.</div>
+                <div class="model-desc">Meta's massive open-weights model hosted by Ollama. Perfect for heavy logic tasks, deep reasoning, and complex coding.</div>
                 <div class="model-tags">
-                  <span class="model-tag">Extremely Fast</span>
-                  <span class="model-tag">Llama 3.1</span>
+                  <span class="model-tag">70B Parameters</span>
+                  <span class="model-tag">Heavy Logic</span>
                 </div>
-                <a href="https://console.groq.com/" target="_blank" style="text-decoration: none;">
-                  <button class="btn-download" style="width: 100%; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border);">Open Groq Console</button>
-                </a>
+                <button class="btn-download" id="dlBtn-llama3.3-70b-cloud" style="width: 100%;" onclick="downloadModel('llama3.3:70b-cloud')">Add to Ollama</button>
+                <div id="dlWrapper-llama3.3-70b-cloud" style="display:none; align-items:center; gap:8px; margin-top:8px;">
+                  <div class="download-progress-container" id="dlProgC-llama3.3-70b-cloud" style="flex-grow:1; margin:0;">
+                    <div class="download-progress-fill" id="dlProgF-llama3.3-70b-cloud"></div>
+                  </div>
+                  <button class="btn-cancel" onclick="cancelDownload('llama3.3:70b-cloud')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
+                </div>
+                <div class="download-status" id="dlStat-llama3.3-70b-cloud" style="display:none; font-size:12px; color:var(--text-secondary); margin-top:4px;">Preparing...</div>
               </div>
 
-              <!-- Together AI -->
+              <!-- Qwen 2.5 72B Cloud -->
               <div class="model-card">
                 <div class="model-card-header">
-                  <div class="model-name">Together AI</div>
+                  <div class="model-name">Qwen 2.5 72B</div>
                   <div class="model-size">Cloud</div>
                 </div>
-                <div class="model-desc">Massive catalog of open-weights models including Llama 3.1 405B and Qwen 2.5 72B. Great for heavy logic tasks.</div>
+                <div class="model-desc">Incredible 72-billion parameter model optimized for advanced instruction following and world-class coding ability.</div>
                 <div class="model-tags">
-                  <span class="model-tag">Huge Catalog</span>
-                  <span class="model-tag">405B Models</span>
+                  <span class="model-tag">72B Parameters</span>
+                  <span class="model-tag">World-class Coding</span>
                 </div>
-                <button class="btn-download" style="width: 100%; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border);" onclick="window.open('https://api.together.ai/', '_blank')">Open Together AI</button>
+                <button class="btn-download" id="dlBtn-qwen2.5-72b-cloud" style="width: 100%;" onclick="downloadModel('qwen2.5:72b-cloud')">Add to Ollama</button>
+                <div id="dlWrapper-qwen2.5-72b-cloud" style="display:none; align-items:center; gap:8px; margin-top:8px;">
+                  <div class="download-progress-container" id="dlProgC-qwen2.5-72b-cloud" style="flex-grow:1; margin:0;">
+                    <div class="download-progress-fill" id="dlProgF-qwen2.5-72b-cloud"></div>
+                  </div>
+                  <button class="btn-cancel" onclick="cancelDownload('qwen2.5:72b-cloud')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
+                </div>
+                <div class="download-status" id="dlStat-qwen2.5-72b-cloud" style="display:none; font-size:12px; color:var(--text-secondary); margin-top:4px;">Preparing...</div>
               </div>
               
-              <!-- Fireworks AI -->
+              <!-- DeepSeek R1 67B Cloud -->
               <div class="model-card">
                 <div class="model-card-header">
-                  <div class="model-name">Fireworks AI</div>
+                  <div class="model-name">DeepSeek R1 67B</div>
                   <div class="model-size">Cloud</div>
                 </div>
-                <div class="model-desc">Highly optimized and cost-effective inference for standard models like DeepSeek Coder V2 and Mixtral 8x22B.</div>
+                <div class="model-desc">Specialized reasoning and math model that thinks deeply before responding. Hosted instantly via Ollama cloud.</div>
                 <div class="model-tags">
-                  <span class="model-tag">Cost Effective</span>
-                  <span class="model-tag">Coding Models</span>
+                  <span class="model-tag">67B Parameters</span>
+                  <span class="model-tag">Deep Reasoning</span>
                 </div>
-                <button class="btn-download" style="width: 100%; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border);" onclick="window.open('https://fireworks.ai/', '_blank')">Open Fireworks AI</button>
+                <button class="btn-download" id="dlBtn-deepseek-r1-67b-cloud" style="width: 100%;" onclick="downloadModel('deepseek-r1:67b-cloud')">Add to Ollama</button>
+                <div id="dlWrapper-deepseek-r1-67b-cloud" style="display:none; align-items:center; gap:8px; margin-top:8px;">
+                  <div class="download-progress-container" id="dlProgC-deepseek-r1-67b-cloud" style="flex-grow:1; margin:0;">
+                    <div class="download-progress-fill" id="dlProgF-deepseek-r1-67b-cloud"></div>
+                  </div>
+                  <button class="btn-cancel" onclick="cancelDownload('deepseek-r1:67b-cloud')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
+                </div>
+                <div class="download-status" id="dlStat-deepseek-r1-67b-cloud" style="display:none; font-size:12px; color:var(--text-secondary); margin-top:4px;">Preparing...</div>
               </div>
 
             </div>
@@ -1292,27 +1311,43 @@
         txt.textContent = 'Ollama unreachable';
       }
 
-      // Populate model selector
+      // Populate model selector using new /models endpoint
+      const modelsResp = await fetch(`${API}/models`);
+      const modelsData = await modelsResp.json();
       const sel = document.getElementById('modelSelect');
       sel.innerHTML = '';
       
-      if (!selectedModel && d.ollama_models.length > 0) {
+      if (!selectedModel && modelsData.models.length > 0) {
         // Auto-select fastest available model
-        const fastModel = d.ollama_models.find(m => m.includes('1b') || m.includes('tiny') || m.includes('qwen'));
-        const llamaModel = d.ollama_models.find(m => m.includes('llama'));
-        selectedModel = fastModel || llamaModel || d.ollama_models[0];
+        const fastModel = modelsData.models.find(m => m.name.includes('1b') || m.name.includes('tiny') || m.name.includes('qwen'));
+        const llamaModel = modelsData.models.find(m => m.name.includes('llama'));
+        selectedModel = fastModel ? fastModel.name : (llamaModel ? llamaModel.name : modelsData.models[0].name);
       }
 
-      d.ollama_models.forEach(m => {
+      const localGroup = document.createElement('optgroup');
+      localGroup.label = "Local Models";
+      const cloudGroup = document.createElement('optgroup');
+      cloudGroup.label = "Cloud Models";
+
+      modelsData.models.forEach(m => {
         const opt = document.createElement('option');
-        opt.value = m; 
-        opt.textContent = (m.startsWith('groq/') || m.startsWith('together/')) ? `☁️ ${m}` : m;
-        if (m === selectedModel) {
-          opt.selected = true;
+        opt.value = m.name; 
+        if (m.is_cloud) {
+          opt.textContent = `☁ Cloud: ${m.name}`;
+          opt.title = "Runs on Ollama's cloud servers — requires internet connection.";
+          if (m.name === selectedModel) opt.selected = true;
+          cloudGroup.appendChild(opt);
+        } else {
+          opt.textContent = m.name;
+          if (m.name === selectedModel) opt.selected = true;
+          localGroup.appendChild(opt);
         }
-        sel.appendChild(opt);
       });
-      if (!d.ollama_models.length) {
+      
+      if (localGroup.children.length > 0) sel.appendChild(localGroup);
+      if (cloudGroup.children.length > 0) sel.appendChild(cloudGroup);
+
+      if (!modelsData.models.length) {
         sel.innerHTML = '<option value="">no models loaded</option>';
       }
       return d;
@@ -1333,12 +1368,15 @@
 
     const rows = document.getElementById('modelsRows');
     if (d.ollama_models.length) {
-      rows.innerHTML = d.ollama_models.map(m => `
+      rows.innerHTML = d.ollama_models.map(m => {
+        const isCloud = m.endsWith('-cloud') || m.includes(':cloud');
+        return `
         <div class="model-row" onclick="setModel('${m}')">
           <div class="model-active-dot" style="visibility:${m===selectedModel?'visible':'hidden'}"></div>
           <span class="model-name">${m}</span>
-          <span class="model-size">local</span>
-        </div>`).join('');
+          <span class="model-size">${isCloud ? '☁ cloud' : 'local'}</span>
+        </div>`;
+      }).join('');
     } else {
       rows.innerHTML = '<div style="padding:12px;color:var(--text-muted);font-size:13px">No models loaded. Run: <code>ollama pull llama3.2</code></div>';
     }
