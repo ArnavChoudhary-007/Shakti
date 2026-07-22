@@ -28,7 +28,7 @@ load_dotenv()
 
 import httpx
 import yaml
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Form
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -500,6 +500,7 @@ async def _stream_response(req: QueryRequest, route: Any) -> AsyncIterator[str]:
 
 @app.post("/ingest", response_model=IngestResponse, tags=["Ingestion"])
 async def ingest(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     workspace_id: str = Form("default")
 ):
@@ -520,11 +521,12 @@ async def ingest(
     with open(upload_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    return await _ingest_file_path(str(upload_path), original_name=file_name, workspace_id=workspace_id)
+    return await _ingest_file_path(str(upload_path), original_name=file_name, workspace_id=workspace_id, background_tasks=background_tasks)
 
 
 @app.post("/ingest_path", response_model=IngestResponse, tags=["Ingestion"])
 async def ingest_path(
+    background_tasks: BackgroundTasks,
     path: str = Query(..., description="Absolute path to file on disk"),
     workspace_id: str = Query("default", description="Workspace/session ID")
 ):
@@ -533,10 +535,19 @@ async def ingest_path(
     """
     if not Path(path).exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
-    return await _ingest_file_path(path, original_name=Path(path).name, workspace_id=workspace_id)
+    return await _ingest_file_path(path, original_name=Path(path).name, workspace_id=workspace_id, background_tasks=background_tasks)
 
 
-async def _ingest_file_path(file_path: str, original_name: str, workspace_id: str = "default") -> IngestResponse:
+async def _extract_kg_bg(doc_text: str, original_name: str, workspace_id: str, db: StructuredDB):
+    try:
+        kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
+        edges = await extract_kg_relationships(doc_text, model=kg_model, host=_OLLAMA_HOST)
+        if edges:
+            db.upsert_kg_edges(edges, source_doc=original_name, workspace_id=workspace_id)
+    except Exception as e:
+        logger.error(f"Background KG extraction failed for {original_name}: {e}")
+
+async def _ingest_file_path(file_path: str, original_name: str, workspace_id: str = "default", background_tasks: BackgroundTasks = None) -> IngestResponse:
     """Core ingestion logic, shared by /ingest and /ingest_path."""
     normalizer = _get_normalizer()
     chunker = _get_chunker()
@@ -551,6 +562,9 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
     all_chunks: List[Dict[str, Any]] = []
     source_types: set = set()
     doc_count = 0
+
+    aggregated_texts = []
+    aggregated_chunk_meta = []
 
     for env in envelopes:
         doc = normalizer.normalize(env)
@@ -580,15 +594,29 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
                     file_path=env.get("raw_path", file_path),
                 )
 
-        # Chunk and embed
+        # Chunk
         chunks = chunker.chunk(doc)
-        if not chunks:
-            continue
+        if chunks:
+            for chunk in chunks:
+                aggregated_texts.append(chunk.text)
+                aggregated_chunk_meta.append((chunk, doc.title, workspace_id))
 
-        texts = [c.text for c in chunks]
-        embeddings = embedder.encode(texts)
+        # KG Extraction
+        if doc.text.strip():
+            if background_tasks:
+                logger.info(f"Queuing KG Extraction for {original_name} in background")
+                background_tasks.add_task(_extract_kg_bg, doc.text, original_name, workspace_id, db)
+            else:
+                logger.info(f"Extracting KG synchronously for {original_name}")
+                kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
+                edges = await extract_kg_relationships(doc.text, model=kg_model, host=_OLLAMA_HOST)
+                if edges:
+                    db.upsert_kg_edges(edges, source_doc=original_name, workspace_id=workspace_id)
 
-        for chunk, embedding in zip(chunks, embeddings):
+    # Embed and Store in a single batch
+    if aggregated_texts:
+        embeddings = embedder.encode(aggregated_texts)
+        for (chunk, title, ws_id), embedding in zip(aggregated_chunk_meta, embeddings):
             chunk_dict = {
                 "chunk_id": chunk.chunk_id,
                 "text": chunk.text,
@@ -597,24 +625,16 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
                     **chunk.citation_meta,
                     "doc_id": chunk.doc_id,
                     "source_type": chunk.source_type,
-                    "title": doc.title,
+                    "title": title,
                     "chunk_index": chunk.chunk_index,
                     "total_chunks": chunk.total_chunks,
-                    "workspace_id": workspace_id,
+                    "workspace_id": ws_id,
                 },
             }
             all_chunks.append(chunk_dict)
 
         if all_chunks:
             vs.add(all_chunks)
-
-        # KG Extraction
-        if doc.text.strip():
-            logger.info(f"Extracting KG for {original_name}")
-            kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
-            edges = await extract_kg_relationships(doc.text, model=kg_model, host=_OLLAMA_HOST)
-            if edges:
-                db.upsert_kg_edges(edges, source_doc=original_name, workspace_id=workspace_id)
 
     return IngestResponse(
         status="ok",

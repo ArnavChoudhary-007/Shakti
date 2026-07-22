@@ -99,6 +99,7 @@ class Normalizer:
                 file_name=meta["file_name"],
                 file_path=env.raw_path,
                 location_label=f"page {page} of {total}",
+                sender=meta.get("author")
             ),
         )
 

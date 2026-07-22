@@ -99,7 +99,7 @@ def _build_prompt(query: str, chunks: List[Dict[str, Any]]) -> str:
     for i, chunk in enumerate(chunks, start=1):
         meta = chunk.get("metadata", {})
         file_name = meta.get("file_name", "unknown")
-        location = meta.get("page_or_timestamp", "") or "—"
+        location = meta.get("location_label", "") or "—"
         sender = meta.get("sender", "")
         source_type = meta.get("source_type", "")
         text = chunk.get("text", "").strip()

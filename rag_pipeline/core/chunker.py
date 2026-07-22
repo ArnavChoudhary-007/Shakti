@@ -98,7 +98,7 @@ def _refine_citation_meta(
         # Usually loc is "page 3 of 20"
         if loc.startswith("page "):
             page_num = loc.split(" ")[1]
-            refined["location_label"] = f"Page {page_num}"
+            refined["location_label"] = f"page {page_num}"
         else:
             refined["location_label"] = loc
     elif st in ("docx", "csv", "email", "mbox", "eml", "pst") or (st == "excel" and doc.structured_data is None) or st not in _SINGLE_CHUNK_TYPES | _CHAT_TYPES | _EXCEL_TYPES | _TEXT_SPLIT_TYPES:
@@ -116,8 +116,10 @@ def _refine_citation_meta(
                 date_str = doc.created_at[:10] if doc.created_at else "Unknown date"
                 refined["location_label"] = f"Email from {sender}, {date_str}"
             else:
-                refined["location_label"] = f"Lines {start_line}–{end_line}"
-    elif st == "excel" and doc.structured_data is not None:
+                if loc and "full document" in loc:
+                    refined["location_label"] = f"{loc}, Lines {start_line}–{end_line}"
+                else:
+                    refined["location_label"] = f"Lines {start_line}–{end_line}"
         sheet = loc.replace("sheet: ", "") if "sheet: " in loc else loc
         refined["location_label"] = f"Sheet '{sheet}'"
     elif st in ("whatsapp", "telegram", "slack", "teams"):

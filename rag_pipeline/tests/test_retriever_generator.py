@@ -42,8 +42,8 @@ def test_generator_prompt():
         {'chunk_id': 'c1', 'text': 'Acme Corp invoiced 5000 USD in January.', 'metadata': {'file_name': 'inv001.pdf', 'location_label': 'invoice INV-001', 'source_type': 'invoice', 'sender': 'Acme Corp'}},
     ]
     prompt = _build_prompt('What is the total invoice?', chunks)
-    assert '[1] inv001.pdf | invoice INV-001 | (Acme Corp) | [invoice]' in prompt
-    assert 'QUESTION: What is the total invoice?' in prompt
+    assert '[1] File: inv001.pdf | Location: invoice INV-001 | Type: invoice | Sender: Acme Corp' in prompt
+    assert 'Question: What is the total invoice?' in prompt
 
 class DummyEmbedder:
     def encode_single(self, text):
