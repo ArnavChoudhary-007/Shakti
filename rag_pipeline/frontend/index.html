@@ -1219,8 +1219,16 @@
           <div id="modelsRows" style="color:var(--text-muted);padding:16px;font-size:13px">Loading…</div>
         </div>
       </div>
-    </div>
-
+        <div class="models-list" style="margin-top: 24px; border-color: rgba(239, 68, 68, 0.3);">
+          <div class="models-list-header" style="color: #ef4444;">Danger Zone</div>
+          <div style="padding: 16px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="color: var(--text-muted); font-size: 13px;">
+              Permanently delete all ingested documents, vectors, and knowledge graph data. This action cannot be undone.
+            </div>
+            <button class="btn" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);" onclick="clearIngestedData()">Clear Data</button>
+          </div>
+        </div>
+      </div>
     <!-- ── Models panel ──────────────────────────────────── -->
     <div class="panel" id="panelModels">
       <div class="mm-container">
@@ -1407,6 +1415,31 @@
   }
 
   // ── Knowledge Graph ──────────────────────────────────────
+  window.searchKGNode = function() {
+    if (!kgNetwork) return;
+    const term = document.getElementById('kgSearch').value.toLowerCase();
+    if (!term) return;
+    
+    const nodes = kgNetwork.body.data.nodes.get();
+    const found = nodes.find(n => n.label && n.label.toLowerCase().includes(term));
+    
+    if (found) {
+      const nodeId = found.id;
+      const clusters = kgNetwork.body.nodes;
+      for (const key in clusters) {
+        if (kgNetwork.isCluster(key)) {
+          const nodesInCluster = kgNetwork.getNodesInCluster(key);
+          if (nodesInCluster.includes(nodeId)) {
+            kgNetwork.openCluster(key);
+          }
+        }
+      }
+      
+      kgNetwork.focus(nodeId, { scale: 1.5, animation: true });
+      kgNetwork.setSelection({ nodes: [nodeId] });
+    }
+  };
+
   let kgNetwork = null;
   async function loadKnowledgeGraph() {
     try {
@@ -2621,6 +2654,23 @@
       fetchModelRecommendations();
     } catch (e) {
       alert("Error clearing models: " + e.message);
+    }
+  }
+
+  async function clearIngestedData() {
+    if (!confirm("Are you sure you want to PERMANENTLY delete all ingested documents, vectors, and knowledge graph data for this workspace? This action CANNOT be undone.")) return;
+    try {
+      const res = await fetch(`${API}/system/clear?workspace_id=default`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Failed to clear data');
+      }
+      alert("All ingested data has been successfully cleared.");
+      // Refresh relevant UI components
+      checkHealth(); // Refreshes chunks count
+      loadKnowledgeGraph(); // Clears graph visualization
+    } catch (e) {
+      alert("Error clearing data: " + e.message);
     }
   }
 

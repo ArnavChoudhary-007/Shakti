@@ -15,6 +15,9 @@ Ollama model is swappable per-request via ?model=llama3.2.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import networkx as nx
+import community as community_louvain
 import json
 import logging
 import os
@@ -66,6 +69,8 @@ _normalizer: Optional[Normalizer] = None
 _chunker: Optional[Chunker] = None
 _struct_db: Optional[StructuredDB] = None
 _router: Optional[QueryRouter] = None
+
+_kg_cluster_cache = {}  # In-memory cache for cluster labels
 
 
 def _get_embedder() -> Embedder:
@@ -540,10 +545,10 @@ async def ingest_path(
 
 async def _extract_kg_bg(doc_text: str, original_name: str, workspace_id: str, db: StructuredDB):
     try:
-        kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
-        edges = await extract_kg_relationships(doc_text, model=kg_model, host=_OLLAMA_HOST)
-        if edges:
-            db.upsert_kg_edges(edges, source_doc=original_name, workspace_id=workspace_id)
+        kg_model = get_config().get("ollama", {}).get("default_text_model", "llama3.2:3b")
+        kg_data = await extract_kg_relationships(doc_text, model=kg_model, host=_OLLAMA_HOST)
+        if kg_data and (kg_data.get("nodes") or kg_data.get("edges")):
+            db.upsert_kg_data(kg_data, source_doc=original_name, workspace_id=workspace_id)
     except Exception as e:
         logger.error(f"Background KG extraction failed for {original_name}: {e}")
 
@@ -609,9 +614,9 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
             else:
                 logger.info(f"Extracting KG synchronously for {original_name}")
                 kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
-                edges = await extract_kg_relationships(doc.text, model=kg_model, host=_OLLAMA_HOST)
-                if edges:
-                    db.upsert_kg_edges(edges, source_doc=original_name, workspace_id=workspace_id)
+                kg_data = await extract_kg_relationships(doc.text, model=kg_model, host=_OLLAMA_HOST)
+                if kg_data and (kg_data.get("nodes") or kg_data.get("edges")):
+                    db.upsert_kg_data(kg_data, source_doc=original_name, workspace_id=workspace_id)
 
     # Embed and Store in a single batch
     if aggregated_texts:
@@ -665,6 +670,25 @@ async def prompt_preview(req: QueryRequest):
     preview = build_prompt_preview(req.query, chunks)
     return {"prompt": preview, "chunk_count": len(chunks)}
 
+
+# ── /system/clear ─────────────────────────────────────────────
+
+@app.delete("/system/clear", tags=["System"])
+async def clear_system_data(workspace_id: str = "default"):
+    """Wipes all ingested chunks and structured data for the given workspace."""
+    try:
+        vs = _get_vector_store()
+        if hasattr(vs, "clear_workspace"):
+            vs.clear_workspace(workspace_id)
+        
+        db = _get_struct_db()
+        if hasattr(db, "clear_workspace"):
+            db.clear_workspace(workspace_id)
+            
+        return {"status": "success", "message": f"Cleared data for workspace {workspace_id}"}
+    except Exception as e:
+        logger.error(f"Failed to clear system data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ── /system/recommendations ───────────────────────────────────
 

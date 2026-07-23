@@ -21,8 +21,8 @@ vector_store:
 # ── Ollama ───────────────────────────────────────────────────
 ollama:
   host: "http://localhost:11434"
-  default_text_model: "llama3.2:1b"     # overridable per-request
-  grader_model: "llama3.2:1b"           # fast model for algorithmic grader
+  default_text_model: "llama3.2:3b"     # overridable per-request
+  grader_model: "llama3.2:3b"           # fast model for algorithmic grader
   default_vision_model: "llava"      # multimodal / vision model
   request_timeout: 300               # seconds
 

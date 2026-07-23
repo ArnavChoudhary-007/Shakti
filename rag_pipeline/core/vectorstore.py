@@ -72,6 +72,11 @@ class VectorStore(ABC):
         """Remove all chunks belonging to a specific file path."""
         ...
 
+    @abstractmethod
+    def clear_workspace(self, workspace_id: str = "default") -> None:
+        """Remove all chunks belonging to a workspace."""
+        ...
+
 
 # ── Chroma implementation ─────────────────────────────────────
 
@@ -168,6 +173,11 @@ class ChromaVectorStore(VectorStore):
         col = self._get_collection()
         col.delete(where={"file_path": {"$eq": file_path}})
         logger.info("Deleted chunks for file_path=%r from Chroma.", file_path)
+
+    def clear_workspace(self, workspace_id: str = "default") -> None:
+        col = self._get_collection()
+        col.delete(where={"workspace_id": {"$eq": workspace_id}})
+        logger.info("Cleared all chunks for workspace_id=%r from Chroma.", workspace_id)
 
 
 # ── FAISS implementation ──────────────────────────────────────
@@ -303,6 +313,11 @@ class FaissVectorStore(VectorStore):
     def delete_by_file_path(self, file_path: str) -> None:
         self._delete_by_condition(lambda m: m.get("metadata", {}).get("file_path") == file_path)
         logger.info("Deleted chunks for file_path=%r from FAISS.", file_path)
+
+    def clear_workspace(self, workspace_id: str = "default") -> None:
+        self._delete_by_condition(lambda m: m.get("metadata", {}).get("workspace_id", "default") == workspace_id)
+        logger.info("Cleared all chunks for workspace_id=%r from FAISS.", workspace_id)
+
 
     def _delete_by_condition(self, condition_fn) -> None:
         keep_mask = [i for i, m in enumerate(self._meta) if not condition_fn(m)]
