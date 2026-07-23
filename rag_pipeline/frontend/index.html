@@ -947,17 +947,86 @@
     .installed-model-size { font-size: 12px; color: var(--text-muted); }
     .btn-delete { background: #e53e3e; color: white; border: none; padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; transition: 0.2s; }
     .btn-delete:hover { background: #c53030; }
-    .models-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-    .model-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px; display: flex; flex-direction: column; gap: 12px; }
-    .model-card-header { display: flex; justify-content: space-between; align-items: flex-start; }
-    .model-name { font-weight: 700; font-size: 16px; color: var(--text-primary); }
-    .model-size { font-size: 12px; color: var(--text-muted); font-weight: 500; background: var(--bg-base); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
-    .model-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; flex-grow: 1; }
-    .model-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
-    .model-tag { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; background: rgba(99,179,237,0.1); color: var(--accent); }
-    .btn-download { width: 100%; padding: 10px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary); font-weight: 600; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s; margin-top: 8px; font-family: 'Inter', sans-serif; }
-    .btn-download:hover { background: var(--border); }
-    .btn-download:disabled { opacity: 0.5; cursor: not-allowed; }
+    /* ── Model Manager Overhaul ──────────────────────────── */
+    .mm-container { background: #0A0D14; border-radius: 12px; padding: 24px; color: #fff; width: 100%; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
+    .mm-header-block { text-align: center; margin-bottom: 24px; }
+    .mm-header-block h2 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    .mm-header-block p { color: #94a3b8; font-size: 14px; }
+    
+    .mm-topbar { display: flex; justify-content: space-between; align-items: center; background: #131722; border: 1px solid rgba(255,255,255,0.05); padding: 12px 16px; border-radius: 12px; margin-bottom: 24px; }
+    .mm-sys-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #94a3b8; }
+    .mm-sys-status .icon { color: #3b82f6; font-size: 18px; }
+    .mm-sys-status .dot { color: #10b981; font-size: 18px; margin-right: 4px; }
+    .mm-topbar-right { display: flex; align-items: center; gap: 12px; }
+    .mm-search { background: #0A0D14; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 12px 8px 36px; color: #fff; font-size: 13px; width: 220px; outline: none; background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>'); background-repeat: no-repeat; background-position: 12px center; }
+    .mm-view-toggles { display: flex; background: #0A0D14; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; overflow: hidden; }
+    .mm-view-btn { padding: 8px 12px; background: transparent; border: none; color: #94a3b8; cursor: pointer; transition: 0.2s; }
+    .mm-view-btn.active { background: rgba(59, 130, 246, 0.1); color: #818cf8; }
+    
+    .mm-layout { display: flex; gap: 24px; align-items: flex-start; }
+    .mm-col-left { width: 320px; flex-shrink: 0; background: transparent; border-right: 1px solid rgba(255,255,255,0.05); padding-right: 24px; }
+    .mm-col-right { flex: 1; }
+    
+    .mm-section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .mm-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .mm-badge { background: rgba(255,255,255,0.1); color: #cbd5e1; font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
+    
+    .mm-installed-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; max-height: 400px; overflow-y: auto; padding-right: 4px; }
+    .mm-installed-item { display: flex; justify-content: space-between; align-items: center; background: #131722; border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 12px 16px; transition: 0.2s; }
+    .mm-installed-item:hover { border-color: rgba(255,255,255,0.15); }
+    .mm-inst-left { display: flex; align-items: center; gap: 12px; }
+    .mm-inst-icon { color: #c084fc; font-size: 20px; }
+    .mm-inst-name { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 2px; }
+    .mm-inst-size { font-size: 11px; color: #64748b; }
+    .mm-btn-trash { background: transparent; border: none; color: #ef4444; cursor: pointer; opacity: 0.7; transition: 0.2s; font-size: 16px; }
+    .mm-btn-trash:hover { opacity: 1; transform: scale(1.1); }
+    
+    .mm-btn-clear-all { width: 100%; padding: 10px; background: transparent; border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+    .mm-btn-clear-all:hover { background: rgba(239, 68, 68, 0.1); border-color: #ef4444; }
+    
+    .mm-sort { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #94a3b8; }
+    .mm-sort select { background: #131722; border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px; padding: 4px 8px; font-size: 12px; outline: none; }
+    
+    .mm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+    .mm-card { background: #131722; border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s; position: relative; }
+    .mm-card:hover { border-color: rgba(255,255,255,0.15); transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,0.2); }
+    .mm-card-header { display: flex; gap: 12px; align-items: center; }
+    .mm-card-logo { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 20px; background: #0A0D14; border: 1px solid rgba(255,255,255,0.05); }
+    .mm-card-logo.llama { color: #a855f7; }
+    .mm-card-logo.meta { color: #3b82f6; }
+    .mm-card-logo.microsoft { color: #f59e0b; }
+    .mm-card-logo.deepseek { color: #3b82f6; }
+    .mm-card-logo.mistral { color: #f97316; }
+    .mm-card-logo.qwen { color: #8b5cf6; }
+    .mm-card-title-col { flex: 1; }
+    .mm-card-title { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 2px; }
+    .mm-card-size { font-size: 11px; color: #64748b; font-weight: 500; background: rgba(255,255,255,0.03); display: inline-block; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.02); }
+    .mm-card-bookmark { color: #94a3b8; font-size: 16px; cursor: pointer; transition: 0.2s; align-self: flex-start; }
+    .mm-card-bookmark:hover { color: #fff; }
+    .mm-card-desc { font-size: 13px; color: #94a3b8; line-height: 1.5; flex-grow: 1; }
+    .mm-card-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .mm-tag { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; background: rgba(255,255,255,0.05); color: #94a3b8; }
+    .mm-tag.popular { background: rgba(14, 165, 233, 0.1); color: #0ea5e9; }
+    .mm-tag.fast { background: rgba(168, 85, 247, 0.1); color: #a855f7; }
+    .mm-tag.reasoning { background: rgba(168, 85, 247, 0.1); color: #a855f7; }
+    .mm-tag.coding { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
+    .mm-tag.tool { background: rgba(132, 204, 22, 0.1); color: #84cc16; }
+    
+    .mm-btn-dl { width: 100%; padding: 10px; background: #6d28d9; color: #fff; border: none; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; }
+    .mm-btn-dl:hover { background: #7c3aed; }
+    .mm-btn-dl .icon { font-size: 14px; }
+    
+    .mm-view-all { display: flex; justify-content: center; margin-top: 24px; }
+    .mm-view-all-btn { background: transparent; border: 1px solid rgba(255,255,255,0.05); color: #c084fc; padding: 8px 16px; border-radius: 100px; font-size: 12px; font-weight: 600; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 4px; }
+    .mm-view-all-btn:hover { background: rgba(192, 132, 252, 0.1); border-color: rgba(192, 132, 252, 0.3); }
+
+    .mm-grid.mm-list-view { display: flex; flex-direction: column; gap: 12px; }
+    .mm-grid.mm-list-view .mm-card { flex-direction: row; align-items: center; padding: 12px 16px; gap: 24px; }
+    .mm-grid.mm-list-view .mm-card-header { width: 250px; flex-shrink: 0; margin-bottom: 0; }
+    .mm-grid.mm-list-view .mm-card-desc { flex-grow: 1; margin: 0; }
+    .mm-grid.mm-list-view .mm-card-tags { margin: 0; display: flex; align-items: center; width: 200px; flex-shrink: 0; }
+    .mm-grid.mm-list-view .mm-btn-dl { width: 140px; margin: 0; flex-shrink: 0; }
+
     .download-progress-container { width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; margin-top: 12px; }
     .download-progress-fill { height: 100%; background: linear-gradient(90deg, #a855f7, #ec4899); width: 0%; transition: width 0.3s; box-shadow: 0 0 10px rgba(236,72,153,0.5); }
     .download-status { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 6px; display: none; }
@@ -1154,36 +1223,65 @@
 
     <!-- ── Models panel ──────────────────────────────────── -->
     <div class="panel" id="panelModels">
-      <div style="padding: 24px; max-width: 1200px; margin: 0 auto;">
-        <div id="hardwareBanner" class="hardware-banner">
-          <div class="hardware-icon">🖥️</div>
-          <div class="hardware-text" id="hardwareText">Detecting system specifications...</div>
+      <div class="mm-container">
+
+        
+        <div class="mm-topbar">
+          <div class="mm-sys-status">
+            <span class="icon">🖥️</span> System Status <span class="dot">•</span> <span id="hardwareText">Detecting system specifications...</span>
+          </div>
+          <div class="mm-topbar-right">
+            <input type="text" id="modelSearchInput" class="mm-search" placeholder="Search models..." oninput="handleModelSearch()">
+            <div class="mm-view-toggles">
+              <button class="mm-view-btn active" onclick="toggleView(this, 'grid')">▦</button>
+              <button class="mm-view-btn" onclick="toggleView(this, 'list')">☰</button>
+            </div>
+          </div>
         </div>
         
-        <div style="display: flex; gap: 40px; align-items: flex-start; flex-wrap: wrap;">
-          <div style="flex: 0 0 350px;">
-            <h3 style="margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Installed Models</h3>
-            <div id="installedModelsList" class="installed-models-list"></div>
+        <div class="mm-layout">
+          <!-- Left Column: Installed -->
+          <div class="mm-col-left">
+            <div class="mm-section-header">
+              <div class="mm-title">Installed Models <span class="mm-badge" id="badgeInstalled">0</span></div>
+            </div>
+            <div id="installedModelsList" class="mm-installed-list"></div>
+            <button class="mm-btn-clear-all" onclick="clearAllModels()">🗑️ Clear All Models</button>
+            
+            <div style="margin-top: 40px;">
+              <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #fff;">Pull Custom Model</h3>
+              <div style="display: flex; gap: 8px; flex-direction: column;">
+                <input type="text" id="customModelInput" placeholder="e.g. gpt-oss:20b-cloud" style="padding: 10px 14px; background: #131722; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-size: 13px; font-family: monospace; outline: none;">
+                <button class="mm-btn-dl" id="dlBtn-custom" onclick="downloadCustomModel()"><span class="icon">📥</span> Pull Model</button>
+              </div>
+              <div id="dlWrapper-custom" style="display:none; align-items:center; gap:8px; margin-top:12px;">
+                <div class="download-progress-container" id="dlProgC-custom" style="flex-grow:1; margin:0;">
+                  <div class="download-progress-fill" id="dlProgF-custom"></div>
+                </div>
+                <button onclick="cancelDownload(document.getElementById('customModelInput').value)" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
+              </div>
+              <div class="download-status" id="dlStat-custom">Preparing...</div>
+            </div>
           </div>
           
-          <div style="flex: 1; min-width: 400px;">
-            <h3 style="margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Recommended Models</h3>
-            <div id="modelsGrid" class="models-grid"></div>
-
-            <h3 style="margin-top: 40px; margin-bottom: 16px; color: var(--text-primary); font-weight: 600;">Pull Custom Model</h3>
-            <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">Want to use a specific model or a cloud model? Type the exact name from the Ollama library (e.g., <code>gpt-oss:20b:cloud</code>) to pull it.</p>
-            <div style="display: flex; gap: 10px; align-items: center; max-width: 500px;">
-              <input type="text" id="customModelInput" placeholder="Model name (e.g. gpt-oss:20b:cloud)..." style="flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: 'JetBrains Mono', monospace; outline: none;">
-              <button class="btn-download" id="dlBtn-custom" onclick="downloadCustomModel()" style="padding: 10px 20px;">Pull Model</button>
-            </div>
-            <div id="dlWrapper-custom" style="display:none; align-items:center; gap:8px; margin-top:12px; max-width: 500px;">
-              <div class="download-progress-container" id="dlProgC-custom" style="flex-grow:1; margin:0;">
-                <div class="download-progress-fill" id="dlProgF-custom"></div>
+          <!-- Right Column: Recommended -->
+          <div class="mm-col-right">
+            <div class="mm-section-header">
+              <div class="mm-title">Recommended Models <span class="mm-badge" id="badgeRecommended">0</span></div>
+              <div class="mm-sort">
+                Sort by: 
+                <select id="sortRecommended" onchange="handleSortRecommendations()">
+                  <option value="popularity">Popularity</option>
+                  <option value="size">Size</option>
+                  <option value="newest">Newest</option>
+                </select>
               </div>
-              <button class="btn-cancel" onclick="cancelDownload(document.getElementById('customModelInput').value)" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
             </div>
-            <div class="download-status" id="dlStat-custom" style="display:none; font-size:12px; color:var(--text-secondary); margin-top:4px;">Preparing...</div>
-
+            <div id="modelsGrid" class="mm-grid"></div>
+            
+            <div class="mm-view-all">
+              <button class="mm-view-all-btn">View All Models <span>⌄</span></button>
+            </div>
           </div>
         </div>
       </div>
@@ -1413,8 +1511,8 @@
         txt.textContent = 'Ollama unreachable';
       }
 
-      // Populate model selector using new /models endpoint
-      const modelsResp = await fetch(`${API}/models`);
+      // Populate model selector using new /ollama/models endpoint
+      const modelsResp = await fetch(`${API}/ollama/models`);
       const modelsData = await modelsResp.json();
       const sel = document.getElementById('modelSelect');
       sel.innerHTML = '';
@@ -2126,8 +2224,6 @@
         
         const textTarget = cit.snippet || cit.full_text || "";
         if (textTarget) {
-          // Use Text Fragment API to highlight the entire block of text!
-          // We take the first 5 words and the last 5 words to create a robust start,end range
           const cleanText = textTarget.replace(/[^a-zA-Z0-9]/g, ' ').trim();
           const words = cleanText.split(/\s+/).filter(w => w.length > 0);
           
@@ -2200,6 +2296,8 @@
 
   // ── Model Manager Logic ────────────────────────────────
   const downloadControllers = {};
+  window.recommendedModelsData = [];
+
   async function fetchModelRecommendations() {
     try {
       const res = await fetch(`${API}/system/recommendations`);
@@ -2208,37 +2306,90 @@
       document.getElementById('hardwareText').textContent = 
         `Detected: ${data.hardware.ram_gb} GB RAM | ${data.hardware.cpu_cores} Logical Cores`;
 
-      const grid = document.getElementById('modelsGrid');
-      grid.innerHTML = '';
-
-      data.models.forEach(model => {
-        const card = document.createElement('div');
-        card.className = 'model-card';
-        card.innerHTML = `
-          <div class="model-card-header">
-            <div class="model-name">${model.name}</div>
-            <div class="model-size">${model.size}</div>
-          </div>
-          <div class="model-desc">${model.desc}</div>
-          <div class="model-tags">
-            ${model.tags.map(t => `<span class="model-tag">${t}</span>`).join('')}
-          </div>
-          <button class="btn-download" id="dlBtn-${model.name.replace(':','-')}" onclick="downloadModel('${model.name}')">Download</button>
-          <div id="dlWrapper-${model.name.replace(':','-')}" style="display:none; align-items:center; gap:8px;">
-            <div class="download-progress-container" id="dlProgC-${model.name.replace(':','-')}" style="flex-grow:1; margin:0;">
-              <div class="download-progress-fill" id="dlProgF-${model.name.replace(':','-')}"></div>
-            </div>
-            <button class="btn-cancel" onclick="cancelDownload('${model.name}')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
-          </div>
-          <div class="download-status" id="dlStat-${model.name.replace(':','-')}">Preparing...</div>
-        `;
-        grid.appendChild(card);
-      });
-
+      window.recommendedModelsData = data.models || [];
+      document.getElementById('badgeRecommended').textContent = window.recommendedModelsData.length;
+      
+      handleSortRecommendations();
     } catch (e) {
       console.error('Failed to fetch recommendations:', e);
       document.getElementById('hardwareText').textContent = 'Unable to detect system hardware.';
     }
+  }
+
+  function handleSortRecommendations() {
+    const val = document.getElementById('sortRecommended').value;
+    const searchInput = document.getElementById('modelSearchInput');
+    const q = searchInput ? searchInput.value.toLowerCase() : '';
+    let sorted = window.recommendedModelsData.filter(m => 
+      m.name.toLowerCase().includes(q) || 
+      (m.tags && m.tags.some(t => t.toLowerCase().includes(q)))
+    );
+    
+    if (val === 'size') {
+      sorted.sort((a, b) => {
+        const parseSize = (s) => {
+          if (!s) return 0;
+          const val = parseFloat(s);
+          if (s.toLowerCase().includes('gb')) return val * 1024;
+          return val;
+        };
+        return parseSize(a.size) - parseSize(b.size);
+      });
+    } else if (val === 'newest') {
+      sorted.reverse();
+    }
+    
+    renderRecommendedModels(sorted);
+  }
+
+  function renderRecommendedModels(models) {
+    const grid = document.getElementById('modelsGrid');
+    grid.innerHTML = '';
+
+    models.forEach(model => {
+      let iconClass = 'qwen'; let iconChar = '👾';
+      if (model.name.includes('llama')) { iconClass = 'llama'; iconChar = '🦙'; }
+      else if (model.name.includes('phi')) { iconClass = 'microsoft'; iconChar = '🪟'; }
+      else if (model.name.includes('deepseek')) { iconClass = 'deepseek'; iconChar = '🐳'; }
+      else if (model.name.includes('mistral')) { iconClass = 'mistral'; iconChar = '🏰'; }
+      
+      const card = document.createElement('div');
+      card.className = 'mm-card';
+      card.innerHTML = `
+        <div class="mm-card-header">
+          <div class="mm-card-logo ${iconClass}">${iconChar}</div>
+          <div class="mm-card-title-col">
+            <div class="mm-card-title">${model.name}</div>
+            <div class="mm-card-size">${model.size}</div>
+          </div>
+          <div class="mm-card-bookmark">🔖</div>
+        </div>
+        <div class="mm-card-desc">${model.desc}</div>
+        <div class="mm-card-tags">
+          ${model.tags.map(t => {
+            let cls = '';
+            const tl = t.toLowerCase();
+            if (tl === 'popular') cls = 'popular';
+            else if (tl === 'fast') cls = 'fast';
+            else if (tl === 'reasoning') cls = 'reasoning';
+            else if (tl === 'coding') cls = 'coding';
+            else if (tl === 'tool use') cls = 'tool';
+            return `<span class="mm-tag ${cls}">${t}</span>`;
+          }).join('')}
+        </div>
+        <button class="mm-btn-dl" id="dlBtn-${model.name.replace(':','-')}" onclick="downloadModel('${model.name}')">
+          <span class="icon">📥</span> Download
+        </button>
+        <div id="dlWrapper-${model.name.replace(':','-')}" style="display:none; align-items:center; gap:8px;">
+          <div class="download-progress-container" id="dlProgC-${model.name.replace(':','-')}" style="flex-grow:1; margin:0;">
+            <div class="download-progress-fill" id="dlProgF-${model.name.replace(':','-')}"></div>
+          </div>
+          <button onclick="cancelDownload('${model.name}')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
+        </div>
+        <div class="download-status" id="dlStat-${model.name.replace(':','-')}">Preparing...</div>
+      `;
+      grid.appendChild(card);
+    });
   }
 
   function downloadCustomModel() {
@@ -2375,36 +2526,70 @@
     }
   }
 
+  window.installedModelsData = [];
+
   async function fetchInstalledModels() {
     try {
       const res = await fetch(`${API}/ollama/models`);
       const data = await res.json();
-      const list = document.getElementById('installedModelsList');
-      list.innerHTML = '';
-      
-      if (!data.models || data.models.length === 0) {
-        list.innerHTML = '<div style="color: var(--text-muted); font-size: 14px;">No models currently installed.</div>';
-        return;
-      }
-
-      data.models.sort((a, b) => a.size - b.size);
-
-      data.models.forEach(m => {
-        const sizeGB = (m.size / (1024**3)).toFixed(1);
-        const item = document.createElement('div');
-        item.className = 'installed-model-item';
-        item.innerHTML = `
-          <div class="installed-model-info">
-            <div class="installed-model-name">${m.name}</div>
-            <div class="installed-model-size">${sizeGB} GB</div>
-          </div>
-          <button class="btn-delete" onclick="deleteModel('${m.name}')">Delete</button>
-        `;
-        list.appendChild(item);
-      });
+      window.installedModelsData = data.models || [];
+      document.getElementById('badgeInstalled').textContent = window.installedModelsData.length;
+      handleModelSearch();
     } catch (e) {
       console.error("Failed to fetch installed models", e);
     }
+  }
+
+  function toggleView(btn, viewType) {
+    const btns = btn.parentElement.querySelectorAll('.mm-view-btn');
+    btns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const grid = document.getElementById('modelsGrid');
+    if (viewType === 'list') {
+      grid.classList.add('mm-list-view');
+    } else {
+      grid.classList.remove('mm-list-view');
+    }
+  }
+
+  function handleModelSearch() {
+    const searchInput = document.getElementById('modelSearchInput');
+    const q = searchInput ? searchInput.value.toLowerCase() : '';
+    
+    // Filter installed models
+    let instFiltered = window.installedModelsData.filter(m => m.name.toLowerCase().includes(q));
+    instFiltered.sort((a, b) => a.size - b.size);
+    renderInstalledModels(instFiltered);
+    
+    // Filter and sort recommended models
+    handleSortRecommendations();
+  }
+
+  function renderInstalledModels(models) {
+    const list = document.getElementById('installedModelsList');
+    list.innerHTML = '';
+    
+    if (models.length === 0) {
+      list.innerHTML = '<div style="color: var(--text-muted); font-size: 14px;">No models found.</div>';
+      return;
+    }
+    
+    models.forEach(m => {
+      const sizeGB = (m.size / (1024**3)).toFixed(1);
+      const item = document.createElement('div');
+      item.className = 'mm-installed-item';
+      item.innerHTML = `
+        <div class="mm-inst-left">
+          <div class="mm-inst-icon">📦</div>
+          <div>
+            <div class="mm-inst-name">${m.name}</div>
+            <div class="mm-inst-size">${sizeGB} GB</div>
+          </div>
+        </div>
+        <button class="mm-btn-trash" onclick="deleteModel('${m.name}')">🗑️</button>
+      `;
+      list.appendChild(item);
+    });
   }
 
   async function deleteModel(modelName) {
@@ -2420,6 +2605,22 @@
       fetchModelRecommendations();
     } catch (e) {
       alert("Error deleting model: " + e.message);
+    }
+  }
+
+  async function clearAllModels() {
+    if (!confirm("Are you sure you want to delete ALL installed models? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`${API}/ollama/models`);
+      const data = await res.json();
+      for (const m of data.models) {
+        await fetch(`${API}/ollama/models/${encodeURIComponent(m.name)}`, { method: 'DELETE' });
+      }
+      checkHealth();
+      fetchInstalledModels();
+      fetchModelRecommendations();
+    } catch (e) {
+      alert("Error clearing models: " + e.message);
     }
   }
 

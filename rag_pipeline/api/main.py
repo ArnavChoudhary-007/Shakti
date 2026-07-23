@@ -664,3 +664,81 @@ async def prompt_preview(req: QueryRequest):
     chunks = _get_retriever().retrieve(req.query, top_k=req.top_k)
     preview = build_prompt_preview(req.query, chunks)
     return {"prompt": preview, "chunk_count": len(chunks)}
+
+
+# ── /system/recommendations ───────────────────────────────────
+
+@app.get("/system/recommendations", tags=["System"])
+async def get_system_recommendations():
+    """Return mock hardware data and recommended models."""
+    return {
+        "hardware": {"ram_gb": 16, "cpu_cores": 8},
+        "models": [
+            {
+                "name": "llama3.2:1b",
+                "size": "1.3 GB",
+                "desc": "Extremely fast, lightweight model perfect for quick everyday queries.",
+                "tags": ["POPULAR", "FAST"]
+            },
+            {
+                "name": "deepseek-coder:1.3b",
+                "size": "776 MB",
+                "desc": "Great small model fine-tuned specifically for coding tasks.",
+                "tags": ["CODING", "FAST"]
+            },
+            {
+                "name": "qwen2.5:0.5b",
+                "size": "397 MB",
+                "desc": "Ultra lightweight versatile model.",
+                "tags": ["FAST"]
+            }
+        ]
+    }
+
+
+# ── /ollama Endpoints ─────────────────────────────────────────
+class PullRequest(BaseModel):
+    model: str
+
+@app.get("/ollama/models", tags=["Ollama"])
+async def list_ollama_models():
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{_OLLAMA_HOST}/api/tags")
+            if resp.status_code == 200:
+                data = resp.json()
+                models = [{"name": m["name"], "size": m.get("size", 0)} for m in data.get("models", [])]
+                return {"models": models}
+    except Exception as e:
+        logger.error(f"Error listing ollama models: {e}")
+    return {"models": []}
+
+@app.post("/ollama/pull", tags=["Ollama"])
+async def pull_ollama_model(req: PullRequest):
+    async def _stream_pull():
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream("POST", f"{_OLLAMA_HOST}/api/pull", json={"name": req.model}) as resp:
+                    async for chunk in resp.aiter_text():
+                        yield chunk
+        except Exception as e:
+            yield json.dumps({"status": f"Error: {e}"}) + "\\n"
+    return StreamingResponse(_stream_pull(), media_type="application/x-ndjson")
+
+@app.delete("/ollama/models/{model_name:path}", tags=["Ollama"])
+async def delete_ollama_model(model_name: str):
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.request("DELETE", f"{_OLLAMA_HOST}/api/delete", json={"name": model_name})
+            if resp.status_code == 200:
+                return {"status": "ok"}
+            else:
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Frontend Mount ─────────────────────────────────────────────
+os.makedirs(_ROOT / "uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_ROOT / "uploads")), name="uploads")
+app.mount("/", StaticFiles(directory=str(_ROOT / "frontend"), html=True), name="frontend")
