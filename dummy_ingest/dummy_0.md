@@ -1,0 +1,1 @@
+This is dummy file 0. John works at Company 0. Company 0 is located in City 0.

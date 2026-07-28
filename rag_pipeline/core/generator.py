@@ -586,11 +586,37 @@ def build_prompt_preview(query: str, chunks: List[Dict[str, Any]]) -> str:
 
 # ── KG Extractor ──────────────────────────────────────────────
 
-async def extract_kg_relationships(text: str, model: str = "llama3.2", host: str = "http://localhost:11434") -> List[Dict[str, Any]]:
+def _sample_text(text: str, source_type: str, max_tokens: int = 2000) -> str:
+    # Approximate 1 token = 4 chars
+    max_chars = max_tokens * 4
+    if len(text) <= max_chars:
+        return text
+    
+    if source_type in ["txt", "md", "docx", "pdf", "doc"]:
+        head_chars = int(max_chars * 0.7)
+        tail_chars = max_chars - head_chars
+        head = text[:head_chars]
+        tail = text[-tail_chars:]
+        return head + "\n\n...[OMITTED]...\n\n" + tail
+    else:
+        chunk_size = max_chars // 3
+        start_chunk = text[:chunk_size]
+        mid_idx = len(text) // 2 - chunk_size // 2
+        mid_chunk = text[mid_idx:mid_idx + chunk_size]
+        end_idx = len(text) - chunk_size
+        end_chunk = text[end_idx:]
+        return (
+            start_chunk + "\n\n...[OMITTED]...\n\n" +
+            mid_chunk + "\n\n...[OMITTED]...\n\n" +
+            end_chunk
+        )
+
+async def extract_kg_relationships(text: str, model: str = "llama3.2", host: str = "http://localhost:11434", source_type: str = "doc") -> List[Dict[str, Any]]:
     """
     Extracts knowledge graph entities and relationships from the provided text.
     Returns a list of dicts: {"source": "node1", "target": "node2", "relation": "rel"}
     """
+    sampled_text = _sample_text(text, source_type, max_tokens=2000)
     prompt = (
         "Extract key entities (such as People, Organizations, Projects, Concepts, and Invoices) "
         "and the relationships between them from the following text.\n"
@@ -599,7 +625,7 @@ async def extract_kg_relationships(text: str, model: str = "llama3.2", host: str
         "For the type fields, you MUST choose one of the following exact categories: "
         "'Concept', 'Material', 'Process', 'Organization', 'Person', 'Location', 'Technology', or 'Other'.\n"
         "Do not output any markdown formatting, explanations, or other text.\n\n"
-        f"Text:\n{text[:3000]}"
+        f"Text:\n{sampled_text}"
     )
     
     try:

@@ -1223,6 +1223,7 @@
         <input type="text" id="kgSearch" placeholder="Search node..." onkeyup="if(event.key === 'Enter') searchKGNode()" style="padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.5); color: #fff; font-size: 13px; backdrop-filter: blur(4px);">
         <button class="btn" onclick="searchKGNode()">Search</button>
         <button class="btn" id="kgResetBtn" onclick="resetKGView()" style="display:none;">Reset Overview</button>
+        <button class="btn" id="kgRebuildBtn" onclick="rebuildKnowledgeGraph()">Rebuild Graph</button>
       </div>
       <div class="kg-legend" style="position: absolute; bottom: 16px; right: 16px; z-index: 10; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); font-size: 12px; color: #cbd5e1;">
         <div style="font-weight: 600; margin-bottom: 8px; color: #fff;">Entity Types</div>
@@ -1521,6 +1522,24 @@
     loadKnowledgeGraph(); // Re-cluster everything and fit
     document.getElementById('kgResetBtn').style.display = 'none';
     document.getElementById('kgSearch').value = '';
+  };
+
+  window.rebuildKnowledgeGraph = async function() {
+    const btn = document.getElementById('kgRebuildBtn');
+    btn.disabled = true;
+    btn.textContent = 'Rebuilding...';
+    try {
+      const r = await fetch(`${API}/kg/rebuild?workspace_id=${encodeURIComponent(currentWorkspace)}`, { method: 'POST' });
+      if (r.ok) {
+        await loadKnowledgeGraph();
+      } else {
+        alert("Failed to rebuild graph");
+      }
+    } catch(e) {
+      alert("Error rebuilding graph: " + e);
+    }
+    btn.disabled = false;
+    btn.textContent = 'Rebuild Graph';
   };
 
   window.explainEntityInChat = function(entityLabel) {
@@ -2518,38 +2537,42 @@
     const cit = arrayIndex >= 0 ? citations[arrayIndex] : null;
     
     if (cit && cit.file_name) {
-      let url = `http://localhost:8000/uploads/${encodeURIComponent(cit.file_name)}`;
-      
-      if (cit.file_name.toLowerCase().endsWith('.pdf')) {
-        let params = [];
+      const lowerName = cit.file_name.toLowerCase();
+      // Browsers can natively render these file types in a new tab.
+      // Other types (like .ppt, .docx, .xlsx) will trigger an unwanted download.
+      const isRenderable = lowerName.endsWith('.pdf') || 
+                           lowerName.match(/\.(png|jpg|jpeg|gif|webp|svg|txt|json|md|html|xml)$/);
+
+      if (isRenderable) {
+        let url = `http://localhost:8000/uploads/${encodeURIComponent(cit.file_name)}`;
         
-        if (cit.location) {
-          const pageMatch = cit.location.match(/page\s+(\d+)/i);
-          if (pageMatch) {
-            params.push(`page=${pageMatch[1]}`);
+        if (lowerName.endsWith('.pdf')) {
+          let params = [];
+          if (cit.location) {
+            const pageMatch = cit.location.match(/page\s+(\d+)/i);
+            if (pageMatch) params.push(`page=${pageMatch[1]}`);
           }
-        }
-        
-        const textTarget = cit.snippet || cit.full_text || "";
-        if (textTarget) {
-          const cleanText = textTarget.replace(/[^a-zA-Z0-9]/g, ' ').trim();
-          const words = cleanText.split(/\s+/).filter(w => w.length > 0);
           
-          if (words.length > 10) {
-            const start = words.slice(0, 5).join(' ');
-            const end = words.slice(-5).join(' ');
-            params.push(`:~:text=${encodeURIComponent(start)},${encodeURIComponent(end)}`);
-          } else if (words.length > 0) {
-            params.push(`:~:text=${encodeURIComponent(words.join(' '))}`);
+          const textTarget = cit.snippet || cit.full_text || "";
+          if (textTarget) {
+            const cleanText = textTarget.replace(/[^a-zA-Z0-9]/g, ' ').trim();
+            const words = cleanText.split(/\s+/).filter(w => w.length > 0);
+            if (words.length > 10) {
+              const start = words.slice(0, 5).join(' ');
+              const end = words.slice(-5).join(' ');
+              params.push(`:~:text=${encodeURIComponent(start)},${encodeURIComponent(end)}`);
+            } else if (words.length > 0) {
+              params.push(`:~:text=${encodeURIComponent(words.join(' '))}`);
+            }
           }
+          
+          if (params.length > 0) url += `#${params.join('&')}`;
         }
-        
-        if (params.length > 0) {
-          url += `#${params.join('&')}`;
-        }
+        window.open(url, '_blank');
+      } else {
+        // Fallback to internal citation viewer for PPTs, Excel, Word, etc.
+        openCitationViewer(citations, citationIndex);
       }
-      
-      window.open(url, '_blank');
     } else {
       openCitationViewer(citations, citationIndex);
     }
@@ -2944,6 +2967,17 @@
       // Refresh relevant UI components
       checkHealth(); // Refreshes chunks count
       loadKnowledgeGraph(); // Clears graph visualization
+      if (typeof clearChat === 'function') clearChat();
+      if (typeof uploadQueue !== 'undefined') {
+        uploadQueue = [];
+        if (typeof refreshUploadUI === 'function') refreshUploadUI();
+        const dropZone = document.getElementById('dropZone');
+        const uploadProgressPanel = document.getElementById('uploadProgressPanel');
+        if (dropZone && uploadProgressPanel) {
+          dropZone.style.display = '';
+          uploadProgressPanel.style.display = 'none';
+        }
+      }
     } catch (e) {
       alert("Error clearing data: " + e.message);
     }
