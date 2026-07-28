@@ -17,7 +17,19 @@ A fully offline, local-first RAG (Retrieval-Augmented Generation) system with:
 - At least one Ollama text model pulled: `ollama pull llama3.2`
 - At least one Ollama vision model pulled: `ollama pull llava`
 
-## Setup
+## Quick Start (For Non-Technical Users on Windows)
+
+We have included a 1-click launcher to handle all the complex technical setup for you.
+
+1. Ensure you have installed **Python** (from python.org) and **Ollama** (from ollama.ai).
+2. Simply double-click the **`start_windows.bat`** file in the project folder.
+3. The script will automatically install dependencies, download the necessary AI models, and open the web app in your browser!
+
+---
+
+## Developer / Manual Setup (For Advanced Users)
+
+If you are on macOS/Linux, or prefer to set up the environment manually:
 
 ```bash
 # 1. Create and activate a virtual environment
@@ -31,10 +43,14 @@ pip install -r requirements.txt
 # 3. (Optional) Install PyTorch CPU-only for a smaller download
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-# 4. Configure
+# 4. Pull required Ollama models
+ollama pull llama3.2
+ollama pull llava
+
+# 5. Configure
 # Edit config.yaml — set Ollama host, model names, chunk sizes, etc.
 
-# 5. Run the API server (Phase 8+)
+# 6. Run the API server
 uvicorn rag_pipeline.api.main:app --reload --port 8000
 ```
 
