@@ -1,1 +1,0 @@
-This is dummy file 2. John works at Company 2. Company 2 is located in City 2.

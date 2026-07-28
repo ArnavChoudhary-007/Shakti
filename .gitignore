@@ -10,3 +10,4 @@ diff.txt
 test_*.py
 rag_pipeline/uploads/
 .agents/
+dummy_ingest/
