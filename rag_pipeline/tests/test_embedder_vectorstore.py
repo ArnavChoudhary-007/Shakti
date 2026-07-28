@@ -66,12 +66,22 @@ SAMPLE_TEXTS = [
 
 # ── Phase 5: Embedder tests ───────────────────────────────────
 
-def test_embedder_loads():
-    embedder = Embedder(model_name=TEST_MODEL)
-    dim = embedder.dimension
+import pytest
+
+@pytest.fixture(scope="module")
+def embedder_and_dim():
+    emb = Embedder(model_name=TEST_MODEL)
+    dim = emb.dimension
     assert dim > 0, "Embedding dimension must be > 0"
-    print("  [PASS] Embedder loaded. Dimension: %d" % dim)
-    return embedder, dim
+    return emb, dim
+
+@pytest.fixture(scope="module")
+def embedder(embedder_and_dim):
+    return embedder_and_dim[0]
+
+@pytest.fixture(scope="module")
+def dim(embedder_and_dim):
+    return embedder_and_dim[1]
 
 
 def test_embedder_encode(embedder: Embedder, dim: int):
@@ -187,11 +197,15 @@ def test_factory_faiss(dim: int):
     print("  [PASS] get_vector_store factory returns FaissVectorStore for backend=faiss")
 
 
-def test_all():
+def run_all():
     print("\n=== Phase 5: Embedder Verification ===\n")
     p5_passed = p5_failed = 0
     try:
-        embedder, dim = test_embedder_loads()
+        # Cannot easily run test_embedder_loads here anymore since it's a fixture,
+        # but for script mode, we can just instantiate Embedder directly
+        embedder = Embedder(model_name=TEST_MODEL)
+        dim = embedder.dimension
+        print("  [PASS] Embedder loaded. Dimension: %d" % dim)
         p5_passed += 1
     except Exception as e:
         print("  [FAIL] test_embedder_loads: %s" % e)
@@ -230,5 +244,5 @@ def test_all():
 
 
 if __name__ == "__main__":
-    ok = test_all()
+    ok = run_all()
     sys.exit(0 if ok else 1)
