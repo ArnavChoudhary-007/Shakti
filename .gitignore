@@ -5,3 +5,7 @@ chroma_db/
 structured_db/
 .pytest_cache/
 *.db
+node_modules/
+diff.txt
+test_*.py
+rag_pipeline/uploads/

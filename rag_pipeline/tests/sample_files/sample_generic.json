@@ -1,0 +1,9 @@
+{
+  "company": "Acme Corp",
+  "fiscal_year": 2024,
+  "departments": [
+    {"name": "Engineering", "headcount": 42, "budget": 5200000},
+    {"name": "Marketing", "headcount": 15, "budget": 1800000}
+  ],
+  "notes": "Annual planning complete"
+}

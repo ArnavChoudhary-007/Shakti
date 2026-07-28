@@ -38,6 +38,9 @@ def _get_connector(source_type: str) -> Any:
     elif source_type == "audio":
         from . import audio_connector
         return audio_connector
+    elif source_type == "json":
+        from . import json_connector
+        return json_connector
     raise ValueError(f"Unknown source type: {source_type!r}")
 
 
@@ -68,6 +71,7 @@ EXTENSION_MAP: Dict[str, str] = {
     ".tiff": "invoice",
     ".tif": "invoice",
     ".bmp": "invoice",
+    ".json": "json",
 }
 
 

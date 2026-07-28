@@ -594,8 +594,11 @@ async def extract_kg_relationships(text: str, model: str = "llama3.2", host: str
     prompt = (
         "Extract key entities (such as People, Organizations, Projects, Concepts, and Invoices) "
         "and the relationships between them from the following text.\n"
-        "Output a strictly valid JSON array of objects, where each object has exactly three string fields: "
-        "'source', 'target', and 'relation'. Do not output any markdown formatting, explanations, or other text.\n\n"
+        "Output a strictly valid JSON array of objects, where each object has exactly five string fields: "
+        "'source', 'source_type', 'target', 'target_type', and 'relation'.\n"
+        "For the type fields, you MUST choose one of the following exact categories: "
+        "'Concept', 'Material', 'Process', 'Organization', 'Person', 'Location', 'Technology', or 'Other'.\n"
+        "Do not output any markdown formatting, explanations, or other text.\n\n"
         f"Text:\n{text[:3000]}"
     )
     

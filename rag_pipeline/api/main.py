@@ -15,6 +15,7 @@ Ollama model is swappable per-request via ?model=llama3.2.
 from __future__ import annotations
 
 import asyncio
+import uuid
 import hashlib
 import networkx as nx
 import community as community_louvain
@@ -26,6 +27,8 @@ import psutil
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 from dotenv import load_dotenv
+
+from rag_pipeline.core.kg_builder import build_graph_layout
 
 load_dotenv()
 
@@ -55,6 +58,10 @@ from rag_pipeline.structured_db.router import QueryRouter
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+# ── Async ingestion job store ─────────────────────────────────
+# Maps job_id -> job state dict. In-memory only; cleared on restart.
+_ingest_jobs: Dict[str, Dict[str, Any]] = {}
 
 # ── Load config at startup ────────────────────────────────────
 _CONFIG = get_config()
@@ -184,9 +191,13 @@ class QueryResponse(BaseModel):
 
 
 class IngestResponse(BaseModel):
-    doc_count: int
-    chunk_count: int
-    source_types: List[str]
+    doc_count: int = 0
+    chunk_count: int = 0
+    source_types: List[str] = []
+    # Async job fields (present when ingestion is running in background)
+    job_id: Optional[str] = None
+    status: Optional[str] = None   # "processing" | "done" | "failed"
+    error: Optional[str] = None
 
 
 class HealthResponse(BaseModel):
@@ -503,30 +514,43 @@ async def _stream_response(req: QueryRequest, route: Any) -> AsyncIterator[str]:
 
 # ── /ingest ───────────────────────────────────────────────────
 
-@app.post("/ingest", response_model=IngestResponse, tags=["Ingestion"])
+@app.post("/ingest", tags=["Ingestion"])
 async def ingest(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     workspace_id: str = Form("default")
 ):
     """
-    Ingest a single file: extract → normalise → chunk → embed → store.
-    Also writes structured data (invoices, ledger rows) to SQLite.
+    Async ingest: saves the file immediately, kicks off extract→chunk→embed
+    in the background, and returns a job_id straight away (HTTP 202).
+    Poll GET /ingest/status/{job_id} for completion.
     """
-    # Save upload to permanent uploads directory
     import shutil
-    
-    # Strip any directory path that the browser might send (e.g. from folder uploads)
+    from fastapi.responses import JSONResponse
+
     file_name = Path(file.filename).name if file.filename else "unknown.bin"
     upload_path = _ROOT / "uploads" / file_name
-    
-    # Ensure parent directories exist
     upload_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     with open(upload_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    return await _ingest_file_path(str(upload_path), original_name=file_name, workspace_id=workspace_id, background_tasks=background_tasks)
+    job_id = str(uuid.uuid4())
+    _ingest_jobs[job_id] = {
+        "job_id": job_id,
+        "status": "processing",
+        "file_name": file_name,
+        "doc_count": 0,
+        "chunk_count": 0,
+        "source_types": [],
+        "error": None,
+    }
+
+    background_tasks.add_task(
+        _run_ingest_job, job_id, str(upload_path), file_name, workspace_id
+    )
+
+    return JSONResponse(status_code=202, content=_ingest_jobs[job_id])
 
 
 @app.post("/ingest_path", response_model=IngestResponse, tags=["Ingestion"])
@@ -537,18 +561,54 @@ async def ingest_path(
 ):
     """
     Ingest a file by path (for server-side use, e.g. CLI or sync daemon).
+    Runs synchronously so callers can await the result directly.
     """
     if not Path(path).exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
     return await _ingest_file_path(path, original_name=Path(path).name, workspace_id=workspace_id, background_tasks=background_tasks)
 
 
+@app.get("/ingest/status/{job_id}", tags=["Ingestion"])
+async def ingest_status(job_id: str):
+    """Poll the status of an async ingestion job started by POST /ingest."""
+    job = _ingest_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    return job
+
+
+async def _run_ingest_job(
+    job_id: str, file_path: str, original_name: str, workspace_id: str
+) -> None:
+    """Background worker: runs the full ingest pipeline and updates job state."""
+    try:
+        result = await _ingest_file_path(
+            file_path,
+            original_name=original_name,
+            workspace_id=workspace_id,
+            background_tasks=None,
+        )
+        _ingest_jobs[job_id].update({
+            "status": "done",
+            "doc_count": result.doc_count,
+            "chunk_count": result.chunk_count,
+            "source_types": result.source_types,
+        })
+    except HTTPException as e:
+        _ingest_jobs[job_id].update({"status": "failed", "error": e.detail})
+    except Exception as e:
+        logger.error(f"Ingest job {job_id} failed: {e}")
+        _ingest_jobs[job_id].update({"status": "failed", "error": str(e)})
+
+
 async def _extract_kg_bg(doc_text: str, original_name: str, workspace_id: str, db: StructuredDB):
     try:
-        kg_model = get_config().get("ollama", {}).get("default_text_model", "llama3.2:3b")
-        kg_data = await extract_kg_relationships(doc_text, model=kg_model, host=_OLLAMA_HOST)
-        if kg_data and (kg_data.get("nodes") or kg_data.get("edges")):
-            db.upsert_kg_data(kg_data, source_doc=original_name, workspace_id=workspace_id)
+        kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
+        kg_edges = await extract_kg_relationships(doc_text, model=kg_model, host=_OLLAMA_HOST)
+        if isinstance(kg_edges, list) and len(kg_edges) > 0:
+            db.upsert_kg_data({"edges": kg_edges}, source_doc=original_name, workspace_id=workspace_id)
+            # Automatically build layout so it's ready for frontend
+            await build_graph_layout(workspace_id=workspace_id, db=db, host=_OLLAMA_HOST, model=kg_model)
     except Exception as e:
         logger.error(f"Background KG extraction failed for {original_name}: {e}")
 
@@ -612,15 +672,20 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
                 logger.info(f"Queuing KG Extraction for {original_name} in background")
                 background_tasks.add_task(_extract_kg_bg, doc.text, original_name, workspace_id, db)
             else:
-                logger.info(f"Extracting KG synchronously for {original_name}")
-                kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
-                kg_data = await extract_kg_relationships(doc.text, model=kg_model, host=_OLLAMA_HOST)
-                if kg_data and (kg_data.get("nodes") or kg_data.get("edges")):
-                    db.upsert_kg_data(kg_data, source_doc=original_name, workspace_id=workspace_id)
+                try:
+                    logger.info(f"Extracting KG synchronously for {original_name}")
+                    kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
+                    kg_edges = await extract_kg_relationships(doc.text, model=kg_model, host=_OLLAMA_HOST)
+                    if isinstance(kg_edges, list) and len(kg_edges) > 0:
+                        db.upsert_kg_data({"edges": kg_edges}, source_doc=original_name, workspace_id=workspace_id)
+                        await build_graph_layout(workspace_id=workspace_id, db=db, host=_OLLAMA_HOST, model=kg_model)
+                except Exception as kg_err:
+                    logger.warning(f"KG extraction failed for {original_name} (non-fatal): {kg_err}")
 
     # Embed and Store in a single batch
     if aggregated_texts:
-        embeddings = embedder.encode(aggregated_texts)
+        loop = asyncio.get_running_loop()
+        embeddings = await loop.run_in_executor(None, embedder.encode, aggregated_texts)
         for (chunk, title, ws_id), embedding in zip(aggregated_chunk_meta, embeddings):
             chunk_dict = {
                 "chunk_id": chunk.chunk_id,
@@ -654,9 +719,32 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
 
 @app.get("/knowledge_graph", tags=["Knowledge Graph"])
 async def get_knowledge_graph(workspace_id: str = Query("default")):
-    """Returns the extracted Knowledge Graph nodes and edges."""
+    """Returns the extracted Knowledge Graph nodes, unpruned edges, and communities."""
     db = _get_struct_db()
     return db.get_knowledge_graph(workspace_id=workspace_id)
+
+@app.post("/knowledge_graph/build", tags=["Knowledge Graph"])
+async def build_knowledge_graph(
+    workspace_id: str = Query("default"),
+    min_edge_weight: int = Query(1, description="Minimum occurrences to keep an edge")
+):
+    """
+    Runs community detection, centrality, LLM labeling, and edge pruning.
+    Call this before rendering the graph on the frontend.
+    """
+    db = _get_struct_db()
+    try:
+        await build_graph_layout(
+            workspace_id=workspace_id,
+            db=db,
+            host=_OLLAMA_HOST,
+            model=get_config().get("generator", {}).get("model", "llama3.2:1b"),
+            min_edge_weight=min_edge_weight
+        )
+        return {"status": "success", "message": "Graph layout built successfully"}
+    except Exception as e:
+        logger.error(f"Failed to build graph layout: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── /prompt_preview ───────────────────────────────────────────

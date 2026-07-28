@@ -110,6 +110,34 @@
       box-shadow: inset 0 0 100px rgba(0,0,0,0.5);
     }
 
+    .kg-side-panel {
+      position: absolute;
+      top: 0; right: -400px;
+      width: 350px; height: 100%;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-left: 1px solid var(--border);
+      transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 20;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+      box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+    }
+    .kg-side-panel.active { right: 0; }
+    .kg-side-panel .close-btn { align-self: flex-end; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 24px; transition: color 0.2s; padding: 0; }
+    .kg-side-panel .close-btn:hover { color: var(--text-primary); }
+    .kg-side-panel h2 { margin: 0; font-size: 20px; color: var(--text-primary); line-height: 1.2; }
+    .kg-side-panel .badge { display: inline-block; padding: 4px 10px; border-radius: 100px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; border: 1px solid currentColor; }
+    .kg-side-panel .section-title { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; margin-top: 8px; letter-spacing: 0.5px; }
+    .kg-side-panel .item-list { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-secondary); padding: 0; margin: 0; }
+    .kg-side-panel .item-list li { padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); list-style-type: none; margin-left: 0; line-height: 1.4; }
+    .kg-action-btn { display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--accent); color: white; border: none; padding: 12px; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; transition: all 0.2s; margin-top: auto; }
+    .kg-action-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
     /* ── Layout ─────────────────────────────────────────── */
     .app {
       display: grid;
@@ -1191,7 +1219,41 @@
 
     <!-- ── Knowledge Graph panel ────────────────────────────── -->
     <div class="panel" id="panelGraph" style="position: relative;">
+      <div class="kg-controls" style="position: absolute; top: 16px; left: 16px; z-index: 10; display: flex; gap: 8px;">
+        <input type="text" id="kgSearch" placeholder="Search node..." onkeyup="if(event.key === 'Enter') searchKGNode()" style="padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.5); color: #fff; font-size: 13px; backdrop-filter: blur(4px);">
+        <button class="btn" onclick="searchKGNode()">Search</button>
+        <button class="btn" id="kgResetBtn" onclick="resetKGView()" style="display:none;">Reset Overview</button>
+      </div>
+      <div class="kg-legend" style="position: absolute; bottom: 16px; right: 16px; z-index: 10; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); font-size: 12px; color: #cbd5e1;">
+        <div style="font-weight: 600; margin-bottom: 8px; color: #fff;">Entity Types</div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #fef3c7; border: 1px solid #f59e0b;"></div> Concept</div>
+          <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #dcfce7; border: 1px solid #22c55e;"></div> Material</div>
+          <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #e0e7ff; border: 1px solid #6366f1;"></div> Process</div>
+          <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #fae8ff; border: 1px solid #d946ef;"></div> Organization</div>
+          <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #ffe4e6; border: 1px solid #f43f5e;"></div> Person</div>
+          <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #ccfbf1; border: 1px solid #14b8a6;"></div> Location</div>
+          <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #f3e8ff; border: 1px solid #a855f7;"></div> Technology</div>
+          <div style="display: flex; align-items: center; gap: 6px;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #f1f5f9; border: 1px solid #94a3b8;"></div> Other</div>
+        </div>
+      </div>
       <div id="kgContainer" class="immersive" style="width: 100%; height: 100%; min-height: 500px;"></div>
+      
+      <div id="kgSidePanel" class="kg-side-panel">
+        <button class="close-btn" onclick="document.getElementById('kgSidePanel').classList.remove('active')">&times;</button>
+        <div><span id="kgSideBadge" class="badge"></span></div>
+        <h2 id="kgSideTitle"></h2>
+        
+        <div class="section-title">Found In Sources</div>
+        <ul id="kgSideSources" class="item-list"></ul>
+        
+        <div class="section-title">Connections</div>
+        <ul id="kgSideConnections" class="item-list"></ul>
+
+        <button id="kgSideAction" class="kg-action-btn" onclick="">
+          <span>💬</span> Explain in Chat
+        </button>
+      </div>
       <div id="kgTooltip" class="glass-tooltip"></div>
     </div>
 
@@ -1435,8 +1497,40 @@
         }
       }
       
+      document.getElementById('kgResetBtn').style.display = 'block';
+      
+      // trigger focus logic manually
+      const connectedNodes = kgNetwork.getConnectedNodes(nodeId);
+      const update = nodes.map(n => {
+        const isFocused = n.id === nodeId || connectedNodes.includes(n.id);
+        return { 
+          id: n.id, 
+          color: isFocused ? undefined : 'rgba(255,255,255,0.05)',
+          font: { color: isFocused ? '#e2e8f0' : 'rgba(255,255,255,0.05)' }
+        };
+      });
+      kgNetwork.body.data.nodes.update(update);
+      
       kgNetwork.focus(nodeId, { scale: 1.5, animation: true });
       kgNetwork.setSelection({ nodes: [nodeId] });
+    }
+  };
+
+  window.resetKGView = function() {
+    if (!kgNetwork) return;
+    loadKnowledgeGraph(); // Re-cluster everything and fit
+    document.getElementById('kgResetBtn').style.display = 'none';
+    document.getElementById('kgSearch').value = '';
+  };
+
+  window.explainEntityInChat = function(entityLabel) {
+    switchTab('chat');
+    const input = document.getElementById('queryInput');
+    if (input) {
+      input.value = `Explain what "${entityLabel}" is and its relationships, based on our knowledge base.`;
+    }
+    if (typeof sendQuery === 'function') {
+      sendQuery();
     }
   };
 
@@ -1460,8 +1554,15 @@
         return;
       }
       
-      const nodesData = data.nodes.map(n => ({ id: n.id, label: n.label, group: n.type || 'default' }));
-      const edgesData = data.edges.map(e => ({ from: e.source, to: e.target, label: e.relation }));
+      const nodesData = data.nodes.map(n => ({ 
+        id: n.id, 
+        label: n.label, 
+        group: n.type || 'default',
+        community: n.community,
+        centrality: n.centrality || 0.1,
+        size: Math.max(10, (n.centrality || 0.1) * 35)
+      }));
+      const edgesData = data.edges.map(e => ({ from: e.source, to: e.target, label: e.relation, title: e.relation, source_doc: e.source_doc }));
       
       const graphData = {
         nodes: new vis.DataSet(nodesData),
@@ -1470,28 +1571,132 @@
       
       const options = {
         interaction: { hover: true, tooltipDelay: 100 },
+        groups: {
+          'Concept': { color: { background: '#fef3c7', border: '#f59e0b', hover: { background: '#fde68a', border: '#d97706' }}},
+          'Material': { color: { background: '#dcfce7', border: '#22c55e', hover: { background: '#bbf7d0', border: '#16a34a' }}},
+          'Process': { color: { background: '#e0e7ff', border: '#6366f1', hover: { background: '#c7d2fe', border: '#4f46e5' }}},
+          'Organization': { color: { background: '#fae8ff', border: '#d946ef', hover: { background: '#f5d0fe', border: '#c026d3' }}},
+          'Person': { color: { background: '#ffe4e6', border: '#f43f5e', hover: { background: '#fecdd3', border: '#e11d48' }}},
+          'Location': { color: { background: '#ccfbf1', border: '#14b8a6', hover: { background: '#99f6e4', border: '#0d9488' }}},
+          'Technology': { color: { background: '#f3e8ff', border: '#a855f7', hover: { background: '#e9d5ff', border: '#9333ea' }}},
+          'default': { color: { background: '#f1f5f9', border: '#94a3b8', hover: { background: '#e2e8f0', border: '#64748b' }}}
+        },
         nodes: { 
           shape: 'dot', 
-          size: 16, 
           font: { size: 14, color: '#e2e8f0', strokeWidth: 0 }, 
-          color: { 
-            background: 'rgba(147, 51, 234, 0.2)', 
-            border: '#9333ea',
-            hover: { background: 'rgba(147, 51, 234, 0.5)', border: '#c084fc' }
-          },
-          shadow: { enabled: true, color: 'rgba(147, 51, 234, 0.8)', size: 15, x: 0, y: 0 }
+          shadow: { enabled: true, color: 'rgba(0,0,0,0.5)', size: 10, x: 0, y: 0 },
+          scaling: { label: { enabled: true, min: 10, max: 20 } }
         },
         edges: { 
-          font: { size: 11, align: 'middle', color: '#9ca3af', strokeWidth: 0 }, 
-          color: { color: 'rgba(147, 51, 234, 0.3)', hover: '#a855f7' }, 
+          font: { size: 0 }, // quiet by default, no labels on canvas
+          width: 1.5,
+          color: { color: 'rgba(255,255,255,0.3)', hover: 'rgba(255,255,255,0.7)', highlight: 'rgba(255,255,255,0.9)' }, 
           arrows: { to: { enabled: true, scaleFactor: 0.5 } },
           smooth: { type: 'continuous' }
         },
-        physics: { stabilization: false, barnesHut: { springLength: 200 } }
+        physics: { 
+          stabilization: { iterations: 150 }, 
+          barnesHut: { 
+            springLength: 200,
+            gravitationalConstant: -2000,
+            centralGravity: 0.1
+          } 
+        }
       };
       
       if (kgNetwork) kgNetwork.destroy();
       kgNetwork = new vis.Network(container, graphData, options);
+
+      // Part 2a: Default view = communities only
+      if (data.communities && data.communities.length > 0) {
+        data.communities.forEach(c => {
+          kgNetwork.cluster({
+            joinCondition: function (childOptions) {
+              return childOptions.community === c.id;
+            },
+            processProperties: function (clusterOptions, childNodes, childEdges) {
+              clusterOptions.size = 20 + (childNodes.length * 3);
+              return clusterOptions;
+            },
+            clusterNodeProperties: {
+              id: 'cluster_' + c.id,
+              label: c.label,
+              shape: 'dot',
+              color: {
+                background: 'rgba(30, 41, 59, 0.8)', // Dark slate, very distinct
+                border: '#94a3b8',
+                hover: { background: 'rgba(51, 65, 85, 0.9)', border: '#cbd5e1' }
+              },
+              font: { size: 18, color: '#f8fafc', strokeWidth: 0 },
+              shadow: { enabled: true, color: 'rgba(0, 0, 0, 0.6)', size: 15 }
+            }
+          });
+        });
+      }
+
+      let focusActive = false;
+      kgNetwork.on("click", function(params) {
+        if (params.nodes.length > 0) {
+          const nodeId = params.nodes[0];
+          if (kgNetwork.isCluster(nodeId)) {
+            kgNetwork.openCluster(nodeId);
+            document.getElementById('kgResetBtn').style.display = 'block';
+          } else {
+            // Focus on click
+            focusActive = true;
+            document.getElementById('kgResetBtn').style.display = 'block';
+            
+            const connectedNodes = kgNetwork.getConnectedNodes(nodeId);
+            const allNodes = kgNetwork.body.data.nodes.get();
+            const update = allNodes.map(n => {
+              const isFocused = n.id === nodeId || connectedNodes.includes(n.id);
+              return { 
+                id: n.id, 
+                color: isFocused ? undefined : 'rgba(255,255,255,0.05)',
+                font: { color: isFocused ? '#e2e8f0' : 'rgba(255,255,255,0.05)' }
+              };
+            });
+            kgNetwork.body.data.nodes.update(update);
+            kgNetwork.focus(nodeId, { scale: 1.2, animation: true });
+
+            // --- populate side panel ---
+            const nodeData = nodesData.find(n => n.id === nodeId);
+            if (nodeData) {
+              const badge = document.getElementById('kgSideBadge');
+              badge.textContent = nodeData.group || 'Entity';
+              badge.style.background = options.groups[nodeData.group]?.color?.background || '#334155';
+              badge.style.color = options.groups[nodeData.group]?.color?.border || '#cbd5e1';
+              
+              document.getElementById('kgSideTitle').textContent = nodeData.label;
+              
+              const linkedDocs = edgesData.filter(e => e.from === nodeId || e.to === nodeId).map(e => e.source_doc).filter((v, i, a) => v && a.indexOf(v) === i);
+              document.getElementById('kgSideSources').innerHTML = linkedDocs.length > 0 ? linkedDocs.map(d => `<li>📄 ${d}</li>`).join('') : '<li>No specific source docs</li>';
+              
+              const connsHtml = edgesData.filter(e => e.from === nodeId || e.to === nodeId).map(e => {
+                const otherId = e.from === nodeId ? e.to : e.from;
+                const otherNode = nodesData.find(n => n.id === otherId);
+                return otherNode ? `<li><strong style="color: #cbd5e1;">${e.label || 'related'}</strong>: ${otherNode.label}</li>` : '';
+              }).join('');
+              document.getElementById('kgSideConnections').innerHTML = connsHtml || '<li>No connections</li>';
+              
+              const actionBtn = document.getElementById('kgSideAction');
+              const safeLabel = nodeData.label.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+              actionBtn.setAttribute('onclick', `explainEntityInChat('${safeLabel}')`);
+              
+              document.getElementById('kgSidePanel').classList.add('active');
+            }
+          }
+        } else {
+          // Clicked background -> Reset focus and hide panel
+          document.getElementById('kgSidePanel').classList.remove('active');
+          if (focusActive) {
+            const allNodes = kgNetwork.body.data.nodes.get();
+            const update = allNodes.map(n => ({ id: n.id, color: undefined, font: { color: '#e2e8f0' } }));
+            kgNetwork.body.data.nodes.update(update);
+            focusActive = false;
+          }
+        }
+      });
 
       // Tooltip logic
       const tooltip = document.getElementById('kgTooltip');
@@ -1500,16 +1705,43 @@
         const nodePosition = kgNetwork.canvasToDOM(kgNetwork.getPositions([nodeId])[nodeId]);
         const nodeData = nodesData.find(n => n.id === nodeId);
         
-        if (nodeData) {
+        if (nodeData && !kgNetwork.isCluster(nodeId)) {
+          const linkedDocs = edgesData
+            .filter(e => e.from === nodeId || e.to === nodeId)
+            .map(e => e.source_doc)
+            .filter((v, i, a) => v && a.indexOf(v) === i); // unique
+
+          const docsHtml = linkedDocs.length > 0 
+            ? `<div style="margin-top: 8px; font-size: 11px; color: #94a3b8;"><strong>Sources:</strong><br/>${linkedDocs.join(', ')}</div>` 
+            : '';
+
           tooltip.innerHTML = `
             <div class="tt-title">${nodeData.label}</div>
             <div class="tt-type">${nodeData.group || 'Entity'}</div>
-            <div style="color: #9ca3af">ID: ${nodeData.id}</div>
+            ${docsHtml}
           `;
           tooltip.style.left = nodePosition.x + 'px';
           tooltip.style.top = (nodePosition.y - 15) + 'px';
           tooltip.classList.add('visible');
         }
+      });
+      
+      kgNetwork.on("hoverEdge", function (params) {
+        const edgeId = params.edge;
+        const edgeData = kgNetwork.body.data.edges.get(edgeId);
+        if (edgeData && edgeData.source_doc) {
+          tooltip.innerHTML = `
+            <div class="tt-title">${edgeData.label || 'Relationship'}</div>
+            <div style="margin-top: 4px; font-size: 11px; color: #94a3b8;"><strong>Source:</strong> ${edgeData.source_doc}</div>
+          `;
+          tooltip.style.left = params.pointer.DOM.x + 'px';
+          tooltip.style.top = (params.pointer.DOM.y - 15) + 'px';
+          tooltip.classList.add('visible');
+        }
+      });
+
+      kgNetwork.on("blurEdge", function () {
+        tooltip.classList.remove('visible');
       });
       
       kgNetwork.on("blurNode", function () {
@@ -2133,9 +2365,9 @@
             const miniBar = row.querySelector('.file-mini-fill');
             const detailTxt = row.querySelector('.file-detail-text');
             if (miniBar) miniBar.style.width = entry.pct + '%';
-            if (detailTxt) detailTxt.textContent = entry.pct + '% Complete';
+            if (detailTxt) detailTxt.textContent = entry.pct + '% uploading...';
           }
-          // Also update the overall bar (by # files done + current pct fraction)
+          // Also update the overall bar
           const total = uploadQueue.length;
           const succeeded = uploadQueue.filter(e => e.status === 'success').length;
           const overallPct = total ? Math.round(((succeeded + entry.pct / 100) / total) * 100) : 0;
@@ -2145,6 +2377,7 @@
       });
 
       xhr.addEventListener('load', () => {
+        // Resolve immediately for both 200 (sync) and 202 (async job started)
         if (xhr.status >= 200 && xhr.status < 300) {
           try { resolve(JSON.parse(xhr.responseText)); }
           catch(e) { resolve({}); }
@@ -2166,6 +2399,34 @@
     });
   }
 
+  async function pollUntilDone(entry, jobId) {
+    // Poll GET /ingest/status/{jobId} every 2 seconds until done or failed.
+    while (true) {
+      await new Promise(r => setTimeout(r, 2000));
+      let data;
+      try {
+        const res = await fetch(`${API}/ingest/status/${jobId}`);
+        if (!res.ok) throw new Error(`Status poll failed: HTTP ${res.status}`);
+        data = await res.json();
+      } catch(e) {
+        throw new Error('Lost contact with server while processing: ' + e.message);
+      }
+
+      if (data.status === 'done') {
+        return data;  // resolved with { chunk_count, source_types, ... }
+      } else if (data.status === 'failed') {
+        throw new Error(data.error || 'Ingestion failed on server');
+      }
+
+      // Still processing — update detail text
+      const row = document.getElementById(`upload-row-${entry.id}`);
+      if (row) {
+        const detailTxt = row.querySelector('.file-detail-text');
+        if (detailTxt) detailTxt.textContent = 'Processing on server...';
+      }
+    }
+  }
+
   async function processQueue() {
     if (isProcessing) return;
     isProcessing = true;
@@ -2181,10 +2442,24 @@
       fd.append('workspace_id', currentWorkspace);
 
       try {
+        // Phase 1: upload file bytes & get a job_id back immediately (202)
         const d = await uploadWithProgress(entry, fd);
-        entry.status = 'success';
-        entry.detail = `${d.chunk_count} chunk${d.chunk_count !== 1 ? 's' : ''} · ${(d.source_types || []).join(', ')}`;
-        entry.pct = 100;
+
+        if (d.job_id) {
+          // Phase 2: server is embedding in background — poll until done
+          entry.detail = 'Processing on server...';
+          entry.pct = 100;
+          refreshUploadUI();
+          const result = await pollUntilDone(entry, d.job_id);
+          entry.status = 'success';
+          entry.detail = `${result.chunk_count} chunk${result.chunk_count !== 1 ? 's' : ''} · ${(result.source_types || []).join(', ')}`;
+          entry.pct = 100;
+        } else {
+          // Synchronous response (e.g. /ingest_path or legacy) — done immediately
+          entry.status = 'success';
+          entry.detail = `${d.chunk_count} chunk${d.chunk_count !== 1 ? 's' : ''} · ${(d.source_types || []).join(', ')}`;
+          entry.pct = 100;
+        }
       } catch (err) {
         entry.status = 'failed';
         entry.detail = err.name === 'AbortError' ? 'Cancelled' : (err.message || 'Unknown error');
@@ -2660,7 +2935,7 @@
   async function clearIngestedData() {
     if (!confirm("Are you sure you want to PERMANENTLY delete all ingested documents, vectors, and knowledge graph data for this workspace? This action CANNOT be undone.")) return;
     try {
-      const res = await fetch(`${API}/system/clear?workspace_id=default`, { method: 'DELETE' });
+      const res = await fetch(`${API}/system/clear?workspace_id=${encodeURIComponent(currentWorkspace)}`, { method: 'DELETE' });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.detail || 'Failed to clear data');
