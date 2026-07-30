@@ -50,7 +50,7 @@ from rag_pipeline.core.embedder import Embedder
 from rag_pipeline.core.model_catalog import get_catalog, build_recommendations
 from rag_pipeline.core.vectorstore import get_vector_store
 from rag_pipeline.core.retriever import Retriever
-from rag_pipeline.core.generator import Generator, build_prompt_preview, extract_kg_relationships
+from rag_pipeline.core.generator import Generator, build_prompt_preview
 from rag_pipeline.core.normalizer import Normalizer
 from rag_pipeline.core.chunker import Chunker
 from rag_pipeline.connectors import extract_file
@@ -559,7 +559,6 @@ async def ingest(
 
 @app.post("/ingest_path", response_model=IngestResponse, tags=["Ingestion"])
 async def ingest_path(
-    background_tasks: BackgroundTasks,
     path: str = Query(..., description="Absolute path to file on disk"),
     workspace_id: str = Query("default", description="Workspace/session ID")
 ):
@@ -569,7 +568,7 @@ async def ingest_path(
     """
     if not Path(path).exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
-    return await _ingest_file_path(path, original_name=Path(path).name, workspace_id=workspace_id, background_tasks=background_tasks)
+    return await _ingest_file_path(path, original_name=Path(path).name, workspace_id=workspace_id)
 
 
 @app.get("/ingest/status/{job_id}", tags=["Ingestion"])
@@ -590,7 +589,6 @@ async def _run_ingest_job(
             file_path,
             original_name=original_name,
             workspace_id=workspace_id,
-            background_tasks=None,
         )
         _ingest_jobs[job_id].update({
             "status": "done",
@@ -606,19 +604,7 @@ async def _run_ingest_job(
         _ingest_jobs[job_id].update({"status": "failed", "error": str(e)})
 
 
-async def _extract_kg_bg(doc_text: str, original_name: str, workspace_id: str, db: StructuredDB, source_type: str = "doc"):
-    t0 = time.perf_counter()
-    try:
-        kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
-        kg_edges = await extract_kg_relationships(doc_text, model=kg_model, host=_OLLAMA_HOST, source_type=source_type)
-        if isinstance(kg_edges, list) and len(kg_edges) > 0:
-            db.upsert_kg_data({"edges": kg_edges}, source_doc=original_name, workspace_id=workspace_id)
-    except Exception as e:
-        logger.error(f"Background KG extraction failed for {original_name}: {e}")
-    finally:
-        logger.info(f"[timing] KG bg call for {original_name}: {time.perf_counter() - t0:.2f}s (untracked in job timings — fired via BackgroundTasks)")
-
-async def _ingest_file_path(file_path: str, original_name: str, workspace_id: str = "default", background_tasks: BackgroundTasks = None) -> IngestResponse:
+async def _ingest_file_path(file_path: str, original_name: str, workspace_id: str = "default") -> IngestResponse:
     """Core ingestion logic, shared by /ingest and /ingest_path."""
     normalizer = _get_normalizer()
     chunker = _get_chunker()
@@ -679,24 +665,18 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
                 aggregated_texts.append(chunk.text)
                 aggregated_chunk_meta.append((chunk, doc.title, workspace_id))
 
-        # KG Extraction
+        # KG: queue the raw text for extraction later, behind the "Build Graph"
+        # action — no Ollama call here, so ingestion never blocks on it.
         if doc.text.strip():
-            source_type = doc.source_type
-            if background_tasks:
-                logger.info(f"Queuing KG Extraction for {original_name} in background")
-                background_tasks.add_task(_extract_kg_bg, doc.text, original_name, workspace_id, db, source_type)
-            else:
-                t0 = time.perf_counter()
-                try:
-                    logger.info(f"Extracting KG synchronously for {original_name}")
-                    kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
-                    kg_edges = await extract_kg_relationships(doc.text, model=kg_model, host=_OLLAMA_HOST, source_type=source_type)
-                    if isinstance(kg_edges, list) and len(kg_edges) > 0:
-                        db.upsert_kg_data({"edges": kg_edges}, source_doc=original_name, workspace_id=workspace_id)
-                except Exception as kg_err:
-                    logger.warning(f"KG extraction failed for {original_name} (non-fatal): {kg_err}")
-                finally:
-                    stage_times["kg"] += time.perf_counter() - t0
+            t0 = time.perf_counter()
+            db.add_kg_pending_doc(
+                doc_id=doc.doc_id,
+                workspace_id=workspace_id,
+                source_doc=original_name,
+                source_type=doc.source_type,
+                text=doc.text,
+            )
+            stage_times["kg"] += time.perf_counter() - t0
 
     # Embed and Store in batches to avoid hogging threads and memory
     if aggregated_texts:

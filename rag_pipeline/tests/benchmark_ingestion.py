@@ -60,9 +60,9 @@ def _find_audio_file() -> Optional[Path]:
     return None
 
 
-def _check_server(base_url: str) -> None:
+def _check_server(client: httpx.Client, base_url: str) -> None:
     try:
-        resp = httpx.get(f"{base_url}/health", timeout=10.0)
+        resp = client.get(f"{base_url}/health", timeout=10.0)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
@@ -73,17 +73,17 @@ def _check_server(base_url: str) -> None:
         print(f"WARNING: Ollama not reachable ({data.get('ollama')}). KG timings will be skewed/failing.")
 
 
-def _clear_workspace(base_url: str) -> None:
+def _clear_workspace(client: httpx.Client, base_url: str) -> None:
     try:
-        httpx.delete(f"{base_url}/system/clear", params={"workspace_id": _WORKSPACE_ID}, timeout=30.0)
+        client.delete(f"{base_url}/system/clear", params={"workspace_id": _WORKSPACE_ID}, timeout=30.0)
     except Exception as e:
         print(f"WARNING: could not clear benchmark workspace before run: {e}")
 
 
-def _ingest_one(base_url: str, file_path: Path, poll_interval: float = 1.0, timeout: float = 900.0) -> Dict[str, Any]:
+def _ingest_one(client: httpx.Client, base_url: str, file_path: Path, poll_interval: float = 1.0, timeout: float = 900.0) -> Dict[str, Any]:
     wall_start = time.perf_counter()
     with open(file_path, "rb") as f:
-        resp = httpx.post(
+        resp = client.post(
             f"{base_url}/ingest",
             files={"file": (file_path.name, f, "application/octet-stream")},
             data={"workspace_id": _WORKSPACE_ID},
@@ -106,10 +106,15 @@ def _ingest_one(base_url: str, file_path: Path, poll_interval: float = 1.0, time
             "timings": payload.get("timings"),
         }
 
+    # Backoff from a short delay up to poll_interval so fast (post-fix) jobs
+    # aren't dominated by fixed poll granularity, while slow jobs don't hammer
+    # the server with requests.
     deadline = time.perf_counter() + timeout
+    delay = min(0.2, poll_interval)
     while time.perf_counter() < deadline:
-        time.sleep(poll_interval)
-        r = httpx.get(f"{base_url}/ingest/status/{job_id}", timeout=15.0)
+        time.sleep(delay)
+        delay = min(delay * 1.5, poll_interval)
+        r = client.get(f"{base_url}/ingest/status/{job_id}", timeout=15.0)
         r.raise_for_status()
         job = r.json()
         if job.get("status") in ("done", "failed"):
@@ -165,9 +170,10 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=900.0, help="Per-file poll timeout in seconds")
     args = parser.parse_args()
 
-    _check_server(args.base_url)
+    client = httpx.Client()
+    _check_server(client, args.base_url)
     if not args.skip_clear:
-        _clear_workspace(args.base_url)
+        _clear_workspace(client, args.base_url)
 
     fixed = args.only if args.only else _FIXED_FILES
     files = [_SAMPLE_DIR / name for name in fixed]
@@ -189,11 +195,12 @@ def main() -> None:
     run_start = time.perf_counter()
     for f in files:
         print(f"Ingesting {f.name} ...")
-        r = _ingest_one(args.base_url, f, poll_interval=args.poll_interval, timeout=args.timeout)
+        r = _ingest_one(client, args.base_url, f, poll_interval=args.poll_interval, timeout=args.timeout)
         results.append(r)
         print(f"  -> {r['status']} in {r.get('wall_time_s', 0):.2f}s "
               f"({r.get('chunk_count', '?')} chunks)")
     run_total = time.perf_counter() - run_start
+    client.close()
 
     _print_summary(results)
 

@@ -1,0 +1,109 @@
+{
+  "label": "phase2a_decouple_kg",
+  "base_url": "http://localhost:8000",
+  "run_total_wall_s": 15.775,
+  "files": [
+    "bench_small.pdf",
+    "bench_medium.pdf",
+    "bench_large.pdf",
+    "bench_spreadsheet.csv",
+    "bench_chat_whatsapp.txt"
+  ],
+  "results": [
+    {
+      "file": "bench_small.pdf",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 0.251,
+      "doc_count": 2,
+      "chunk_count": 3,
+      "source_types": [
+        "pdf"
+      ],
+      "timings": {
+        "parse": 0.026678800000013325,
+        "chunk": 0.0004318999999668449,
+        "embed": 0.09317920000000868,
+        "store": 0.024784699999997883,
+        "kg": 0.016221000000030017,
+        "total": 0.1617482999999993
+      }
+    },
+    {
+      "file": "bench_medium.pdf",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 4.636,
+      "doc_count": 33,
+      "chunk_count": 92,
+      "source_types": [
+        "pdf"
+      ],
+      "timings": {
+        "parse": 0.12781630000000632,
+        "chunk": 0.0054514000000267515,
+        "embed": 2.7001400999999987,
+        "store": 0.16433099999994738,
+        "kg": 0.2761209000001372,
+        "total": 3.282513800000004
+      }
+    },
+    {
+      "file": "bench_large.pdf",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 2.108,
+      "doc_count": 37,
+      "chunk_count": 51,
+      "source_types": [
+        "pdf"
+      ],
+      "timings": {
+        "parse": 0.08783589999995911,
+        "chunk": 0.0031925000000683212,
+        "embed": 1.353797199999974,
+        "store": 0.07703630000003159,
+        "kg": 0.30036200000006374,
+        "total": 1.8325844999999958
+      }
+    },
+    {
+      "file": "bench_spreadsheet.csv",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 3.292,
+      "doc_count": 1,
+      "chunk_count": 71,
+      "source_types": [
+        "csv"
+      ],
+      "timings": {
+        "parse": 0.532206599999995,
+        "chunk": 0.0026487999999744716,
+        "embed": 2.038680299999953,
+        "store": 0.14251689999997552,
+        "kg": 0.00847759999999198,
+        "total": 2.7785036999999875
+      }
+    },
+    {
+      "file": "bench_chat_whatsapp.txt",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 5.489,
+      "doc_count": 341,
+      "chunk_count": 341,
+      "source_types": [
+        "whatsapp"
+      ],
+      "timings": {
+        "parse": 0.07067559999995865,
+        "chunk": 0.009435600000131217,
+        "embed": 1.6082633999999416,
+        "store": 1.1009051999999429,
+        "kg": 2.6537320000005025,
+        "total": 5.48333329999997
+      }
+    }
+  ]
+}

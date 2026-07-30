@@ -4,11 +4,43 @@ import httpx
 import logging
 from typing import Dict, List, Any
 
+from rag_pipeline.core.generator import extract_kg_relationships
+
 logger = logging.getLogger(__name__)
+
+
+async def _extract_pending_kg(workspace_id: str, db, host: str, model: str) -> None:
+    """
+    Run entity/relationship extraction for every document queued during
+    ingestion (one Ollama call per queued doc — same unit as before, just
+    deferred so it never blocks /ingest). Rows are only deleted once their
+    extraction succeeds, so a failed doc is retried on the next Build Graph.
+    """
+    pending = db.get_pending_kg_docs(workspace_id)
+    if not pending:
+        return
+
+    logger.info(f"Extracting KG for {len(pending)} pending doc(s) in workspace {workspace_id}...")
+    done_ids: List[int] = []
+    for row in pending:
+        try:
+            kg_edges = await extract_kg_relationships(
+                row["text"], model=model, host=host, source_type=row["source_type"] or "doc"
+            )
+            if isinstance(kg_edges, list) and len(kg_edges) > 0:
+                db.upsert_kg_data({"edges": kg_edges}, source_doc=row["source_doc"], workspace_id=workspace_id)
+            done_ids.append(row["id"])
+        except Exception as e:
+            logger.warning(f"KG extraction failed for pending doc id={row['id']} ({row['source_doc']}): {e}")
+
+    db.delete_kg_pending_docs(done_ids)
+    logger.info(f"KG extraction done: {len(done_ids)}/{len(pending)} doc(s) succeeded.")
+
 
 async def build_graph_layout(workspace_id: str, db, host: str = "http://localhost:11434", model: str = "llama3.2:1b", min_edge_weight: int = 1) -> None:
     """
     Offline processing for Knowledge Graph:
+    0. Extract entities/relationships for any docs queued since the last build.
     1. Load all raw edges.
     2. Build networkx graph, calculate degree centrality.
     3. Community detection (Louvain).
@@ -17,6 +49,9 @@ async def build_graph_layout(workspace_id: str, db, host: str = "http://localhos
     6. Save computed layout back to DB.
     """
     logger.info(f"Building KG layout for workspace {workspace_id}...")
+
+    # 0. Extract KG data for anything queued during ingestion
+    await _extract_pending_kg(workspace_id, db, host, model)
 
     # 1. Load data
     with db._connect() as conn:
