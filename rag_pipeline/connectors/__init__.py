@@ -5,8 +5,9 @@ to the connector module's extract() function.
 """
 from __future__ import annotations
 
+import json as _json
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator
+from typing import Any, Callable, Dict, Generator, Optional
 
 
 # ── Lazy imports (so missing optional deps don't break import) ──
@@ -72,7 +73,38 @@ EXTENSION_MAP: Dict[str, str] = {
     ".tif": "invoice",
     ".bmp": "invoice",
     ".json": "json",
+    ".txt": "whatsapp",
 }
+
+
+def _sniff_json_source_type(file_path: str) -> str:
+    """
+    Telegram, Slack, and Teams exports are all '.json' — the extension alone
+    can't tell them apart, so peek at the top-level shape. Falls back to
+    'json' (generic connector) if parsing fails or nothing matches, which
+    preserves prior behavior for genuinely generic JSON files.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            data = _json.load(f)
+    except Exception:
+        return "json"
+
+    if isinstance(data, dict):
+        if isinstance(data.get("messages"), list):
+            return "telegram"
+        if isinstance(data.get("Messages"), list):
+            return "teams"
+        return "json"
+
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        first = data[0]
+        if "ts" in first and "text" in first:
+            return "slack"
+        if ("Body" in first or "body" in first) and ("From" in first or "from" in first):
+            return "teams"
+
+    return "json"
 
 
 def extract_file(
@@ -84,7 +116,6 @@ def extract_file(
     Auto-route a file to the correct connector.
     source_type can be specified explicitly; otherwise inferred from extension.
     """
-    from typing import Optional  # noqa: F811
     p = Path(file_path)
     ext = p.suffix.lower()
 
@@ -95,9 +126,8 @@ def extract_file(
                 f"Cannot infer source_type for extension {ext!r}. "
                 f"Specify source_type explicitly or add to EXTENSION_MAP."
             )
+        if source_type == "json":
+            source_type = _sniff_json_source_type(file_path)
 
     connector = _get_connector(source_type)
     yield from connector.extract(file_path, **kwargs)
-
-
-from typing import Optional
