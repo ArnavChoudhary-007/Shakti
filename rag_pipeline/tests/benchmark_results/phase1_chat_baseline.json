@@ -1,0 +1,29 @@
+{
+  "label": "phase1_chat_baseline",
+  "base_url": "http://localhost:8000",
+  "run_total_wall_s": 985.768,
+  "files": [
+    "bench_chat_whatsapp.txt"
+  ],
+  "results": [
+    {
+      "file": "bench_chat_whatsapp.txt",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 985.768,
+      "doc_count": 341,
+      "chunk_count": 341,
+      "source_types": [
+        "whatsapp"
+      ],
+      "timings": {
+        "parse": 0.07564029999997501,
+        "chunk": 0.014781199999987393,
+        "embed": 2.012934100000166,
+        "store": 0.8955934000002799,
+        "kg": 976.8356739,
+        "total": 979.9341399
+      }
+    }
+  ]
+}

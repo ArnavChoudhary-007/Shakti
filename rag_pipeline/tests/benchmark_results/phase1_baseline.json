@@ -1,0 +1,100 @@
+{
+  "label": "phase1_baseline",
+  "base_url": "http://localhost:8000",
+  "run_total_wall_s": 993.984,
+  "files": [
+    "bench_small.pdf",
+    "bench_medium.pdf",
+    "bench_large.pdf",
+    "bench_spreadsheet.csv",
+    "bench_chat_whatsapp.txt"
+  ],
+  "results": [
+    {
+      "file": "bench_small.pdf",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 51.3,
+      "doc_count": 2,
+      "chunk_count": 3,
+      "source_types": [
+        "pdf"
+      ],
+      "timings": {
+        "parse": 0.6777310000000085,
+        "chunk": 0.0009835000000038008,
+        "embed": 0.578390799999994,
+        "store": 0.19375819999999067,
+        "kg": 45.0385455,
+        "total": 46.4904602
+      }
+    },
+    {
+      "file": "bench_medium.pdf",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 409.081,
+      "doc_count": 33,
+      "chunk_count": 92,
+      "source_types": [
+        "pdf"
+      ],
+      "timings": {
+        "parse": 0.13612210000000857,
+        "chunk": 0.012440999999967062,
+        "embed": 7.298824200000013,
+        "store": 0.5013128000000506,
+        "kg": 398.2800513999999,
+        "total": 406.24600940000005
+      }
+    },
+    {
+      "file": "bench_large.pdf",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 486.537,
+      "doc_count": 37,
+      "chunk_count": 51,
+      "source_types": [
+        "pdf"
+      ],
+      "timings": {
+        "parse": 0.33978239999999005,
+        "chunk": 0.011161399999878086,
+        "embed": 3.199136600000088,
+        "store": 0.1957694000000174,
+        "kg": 480.39532180000003,
+        "total": 484.16289630000006
+      }
+    },
+    {
+      "file": "bench_spreadsheet.csv",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 40.953,
+      "doc_count": 1,
+      "chunk_count": 71,
+      "source_types": [
+        "csv"
+      ],
+      "timings": {
+        "parse": 1.8922751999999718,
+        "chunk": 0.005621800000085386,
+        "embed": 5.600400600000285,
+        "store": 0.7342813000000206,
+        "kg": 30.316307100000017,
+        "total": 38.80336349999993
+      }
+    },
+    {
+      "file": "bench_chat_whatsapp.txt",
+      "status": "failed",
+      "error": "Cannot infer source_type for extension '.txt'. Specify source_type explicitly or add to EXTENSION_MAP.",
+      "wall_time_s": 6.113,
+      "doc_count": 0,
+      "chunk_count": 0,
+      "source_types": [],
+      "timings": null
+    }
+  ]
+}

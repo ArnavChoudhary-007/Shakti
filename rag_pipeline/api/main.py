@@ -15,6 +15,7 @@ Ollama model is swappable per-request via ?model=llama3.2.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 import hashlib
 import networkx as nx
@@ -198,6 +199,8 @@ class IngestResponse(BaseModel):
     job_id: Optional[str] = None
     status: Optional[str] = None   # "processing" | "done" | "failed"
     error: Optional[str] = None
+    # Per-stage timing breakdown (seconds), populated once ingestion finishes.
+    timings: Optional[Dict[str, float]] = None
 
 
 class HealthResponse(BaseModel):
@@ -544,6 +547,7 @@ async def ingest(
         "chunk_count": 0,
         "source_types": [],
         "error": None,
+        "timings": None,
     }
 
     background_tasks.add_task(
@@ -593,6 +597,7 @@ async def _run_ingest_job(
             "doc_count": result.doc_count,
             "chunk_count": result.chunk_count,
             "source_types": result.source_types,
+            "timings": result.timings,
         })
     except HTTPException as e:
         _ingest_jobs[job_id].update({"status": "failed", "error": e.detail})
@@ -602,6 +607,7 @@ async def _run_ingest_job(
 
 
 async def _extract_kg_bg(doc_text: str, original_name: str, workspace_id: str, db: StructuredDB, source_type: str = "doc"):
+    t0 = time.perf_counter()
     try:
         kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
         kg_edges = await extract_kg_relationships(doc_text, model=kg_model, host=_OLLAMA_HOST, source_type=source_type)
@@ -609,6 +615,8 @@ async def _extract_kg_bg(doc_text: str, original_name: str, workspace_id: str, d
             db.upsert_kg_data({"edges": kg_edges}, source_doc=original_name, workspace_id=workspace_id)
     except Exception as e:
         logger.error(f"Background KG extraction failed for {original_name}: {e}")
+    finally:
+        logger.info(f"[timing] KG bg call for {original_name}: {time.perf_counter() - t0:.2f}s (untracked in job timings — fired via BackgroundTasks)")
 
 async def _ingest_file_path(file_path: str, original_name: str, workspace_id: str = "default", background_tasks: BackgroundTasks = None) -> IngestResponse:
     """Core ingestion logic, shared by /ingest and /ingest_path."""
@@ -618,7 +626,12 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
     vs = _get_vector_store()
     db = _get_struct_db()
 
+    t_start = time.perf_counter()
+    stage_times = {"parse": 0.0, "chunk": 0.0, "embed": 0.0, "store": 0.0, "kg": 0.0}
+
+    t0 = time.perf_counter()
     envelopes = list(extract_file(file_path))
+    stage_times["parse"] = time.perf_counter() - t0
     if not envelopes:
         raise HTTPException(status_code=422, detail=f"Could not extract content from {original_name}")
 
@@ -658,7 +671,9 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
                 )
 
         # Chunk
+        t0 = time.perf_counter()
         chunks = chunker.chunk(doc)
+        stage_times["chunk"] += time.perf_counter() - t0
         if chunks:
             for chunk in chunks:
                 aggregated_texts.append(chunk.text)
@@ -671,6 +686,7 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
                 logger.info(f"Queuing KG Extraction for {original_name} in background")
                 background_tasks.add_task(_extract_kg_bg, doc.text, original_name, workspace_id, db, source_type)
             else:
+                t0 = time.perf_counter()
                 try:
                     logger.info(f"Extracting KG synchronously for {original_name}")
                     kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
@@ -679,6 +695,8 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
                         db.upsert_kg_data({"edges": kg_edges}, source_doc=original_name, workspace_id=workspace_id)
                 except Exception as kg_err:
                     logger.warning(f"KG extraction failed for {original_name} (non-fatal): {kg_err}")
+                finally:
+                    stage_times["kg"] += time.perf_counter() - t0
 
     # Embed and Store in batches to avoid hogging threads and memory
     if aggregated_texts:
@@ -686,9 +704,11 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
         for i in range(0, len(aggregated_texts), BATCH_SIZE):
             text_batch = aggregated_texts[i:i+BATCH_SIZE]
             meta_batch = aggregated_chunk_meta[i:i+BATCH_SIZE]
-            
+
+            t0 = time.perf_counter()
             embeddings = await asyncio.to_thread(embedder.encode, text_batch)
-            
+            stage_times["embed"] += time.perf_counter() - t0
+
             batch_chunks = []
             for (chunk, title, ws_id), embedding in zip(meta_batch, embeddings):
                 batch_chunks.append({
@@ -705,10 +725,21 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
                         "workspace_id": ws_id,
                     },
                 })
-            
+
             if batch_chunks:
+                t0 = time.perf_counter()
                 vs.add(batch_chunks)
+                stage_times["store"] += time.perf_counter() - t0
                 all_chunks.extend(batch_chunks)
+
+    stage_times["total"] = time.perf_counter() - t_start
+    logger.info(
+        "[timing] Ingest %s: parse=%.2fs chunk=%.2fs kg=%.2fs embed=%.2fs store=%.2fs total=%.2fs "
+        "(envelopes=%d, chunks=%d)",
+        original_name, stage_times["parse"], stage_times["chunk"], stage_times["kg"],
+        stage_times["embed"], stage_times["store"], stage_times["total"],
+        doc_count, len(all_chunks),
+    )
 
     return IngestResponse(
         status="ok",
@@ -716,6 +747,7 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
         doc_count=doc_count,
         chunk_count=len(all_chunks),
         source_types=list(source_types),
+        timings=stage_times,
     )
 
 

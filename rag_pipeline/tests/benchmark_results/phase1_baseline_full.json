@@ -1,0 +1,72 @@
+{
+  "label": "phase1_baseline_full",
+  "note": "Merged from phase1_baseline.json (4 files) + phase1_chat_baseline.json (chat file, run separately after fixing the .txt/.json connector-routing bug found during Phase 1). This is the reference baseline all later phases are measured against.",
+  "base_url": "http://localhost:8000",
+  "run_total_wall_s": 1973.638,
+  "files": [
+    "bench_small.pdf",
+    "bench_medium.pdf",
+    "bench_large.pdf",
+    "bench_spreadsheet.csv",
+    "bench_chat_whatsapp.txt"
+  ],
+  "results": [
+    {
+      "file": "bench_small.pdf",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 51.3,
+      "doc_count": 2,
+      "chunk_count": 3,
+      "source_types": ["pdf"],
+      "timings": {"parse": 0.677731, "chunk": 0.000984, "embed": 0.578391, "store": 0.193758, "kg": 45.038546, "total": 46.49046}
+    },
+    {
+      "file": "bench_medium.pdf",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 409.081,
+      "doc_count": 33,
+      "chunk_count": 92,
+      "source_types": ["pdf"],
+      "timings": {"parse": 0.136122, "chunk": 0.012441, "embed": 7.298824, "store": 0.501313, "kg": 398.280051, "total": 406.246009}
+    },
+    {
+      "file": "bench_large.pdf",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 486.537,
+      "doc_count": 37,
+      "chunk_count": 51,
+      "source_types": ["pdf"],
+      "timings": {"parse": 0.339782, "chunk": 0.011161, "embed": 3.199137, "store": 0.195769, "kg": 480.395322, "total": 484.162896}
+    },
+    {
+      "file": "bench_spreadsheet.csv",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 40.953,
+      "doc_count": 1,
+      "chunk_count": 71,
+      "source_types": ["csv"],
+      "timings": {"parse": 1.892275, "chunk": 0.005622, "embed": 5.600401, "store": 0.734281, "kg": 30.316307, "total": 38.803363}
+    },
+    {
+      "file": "bench_chat_whatsapp.txt",
+      "status": "done",
+      "error": null,
+      "wall_time_s": 985.768,
+      "doc_count": 341,
+      "chunk_count": 341,
+      "source_types": ["whatsapp"],
+      "timings": {"parse": 0.07564, "chunk": 0.014781, "embed": 2.012934, "store": 0.895593, "kg": 976.835674, "total": 979.93414}
+    }
+  ],
+  "aggregate": {
+    "total_wall_s": 1973.638,
+    "total_kg_s": 1930.866,
+    "kg_pct_of_wall": 97.8,
+    "total_envelopes": 414,
+    "total_chunks": 558
+  }
+}

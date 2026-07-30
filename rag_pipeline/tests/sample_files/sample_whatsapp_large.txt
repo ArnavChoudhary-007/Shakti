@@ -1,0 +1,341 @@
+3/1/2024, 9:12 AM - Bob: Hey, can you take a look at the Acme invoice #INV-2024-1001? I think there's an issue with the numbers on page 2.
+3/1/2024, 9:16 AM - Priya: Just finished reviewing the new marketing deck — looks solid, but we should double check the totals before sending.
+3/1/2024, 9:18 AM - Carlos: Quick update on the server migration plan: everything is on track, no blockers from my side.
+3/1/2024, 9:28 AM - Alice: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/1/2024, 9:29 AM - Bob: thanks!
+3/1/2024, 9:33 AM - Priya: Hey, can you take a look at the Q3 budget report? I think there's an issue with the numbers on page 2.
+3/1/2024, 9:43 AM - Carlos: Can someone forward me the latest version of the client meeting notes? I don't think I have the updated one.
+3/1/2024, 9:47 AM - Alice: Can someone forward me the latest version of the Q3 budget report? I don't think I have the updated one.
+3/1/2024, 9:51 AM - Bob: I spoke with the vendor about the product roadmap review and they agreed to a 10% discount if we sign by next week.
+3/1/2024, 10:01 AM - Priya: haha yeah
+3/1/2024, 10:04 AM - Carlos: Hey, can you take a look at the new marketing deck? I think there's an issue with the numbers on page 2.
+3/1/2024, 10:09 AM - Alice: Reminder: the Q4 hiring plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/1/2024, 10:15 AM - Bob: Just finished reviewing the server migration plan — looks solid, but we should double check the totals before sending.
+3/1/2024, 10:22 AM - Priya: Hey, can you take a look at the Acme invoice #INV-2024-1014? I think there's an issue with the numbers on page 2.
+3/1/2024, 10:28 AM - Carlos: sounds good
+3/1/2024, 10:33 AM - Alice: Can someone forward me the latest version of the Nairobi office lease? I don't think I have the updated one.
+3/1/2024, 10:41 AM - Bob: Quick update on the Q3 budget report: everything is on track, no blockers from my side.
+3/1/2024, 10:48 AM - Priya: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/1/2024, 10:53 AM - Carlos: Can someone forward me the latest version of the Acme invoice #INV-2024-1019? I don't think I have the updated one.
+3/1/2024, 10:59 AM - Alice: will do
+3/1/2024, 11:11 AM - Bob: Just finished reviewing the security audit findings — looks solid, but we should double check the totals before sending.
+3/1/2024, 11:22 AM - Priya: Hey, can you take a look at the Acme invoice #INV-2024-1022? I think there's an issue with the numbers on page 2.
+3/1/2024, 11:24 AM - Carlos: Reminder: the client meeting notes is due Friday. Let's sync tomorrow morning to finalize it.
+3/1/2024, 11:31 AM - Alice: Hey, can you take a look at the client meeting notes? I think there's an issue with the numbers on page 2.
+3/1/2024, 11:39 AM - Bob: np
+3/1/2024, 11:45 AM - Priya: Just finished reviewing the Nairobi office lease — looks solid, but we should double check the totals before sending.
+3/1/2024, 11:56 AM - Carlos: Just finished reviewing the Nairobi office lease — looks solid, but we should double check the totals before sending.
+3/1/2024, 12:07 PM - Alice: Quick update on the new marketing deck: everything is on track, no blockers from my side.
+3/1/2024, 12:18 PM - Bob: Can someone forward me the latest version of the Acme invoice #INV-2024-1029? I don't think I have the updated one.
+3/1/2024, 12:27 PM - Priya: yes
+3/1/2024, 12:35 PM - Carlos: Just finished reviewing the client meeting notes — looks solid, but we should double check the totals before sending.
+3/1/2024, 12:46 PM - Alice: Reminder: the Q4 hiring plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/1/2024, 12:57 PM - Bob: Just finished reviewing the product roadmap review — looks solid, but we should double check the totals before sending.
+3/1/2024, 1:01 PM - Priya: Hey, can you take a look at the Nairobi office lease? I think there's an issue with the numbers on page 2.
+3/1/2024, 1:07 PM - Carlos: ok
+3/1/2024, 1:09 PM - Alice: Reminder: the Q4 hiring plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/1/2024, 1:21 PM - Bob: Can someone forward me the latest version of the client meeting notes? I don't think I have the updated one.
+3/1/2024, 1:32 PM - Priya: Just finished reviewing the Nairobi office lease — looks solid, but we should double check the totals before sending.
+3/1/2024, 1:43 PM - Carlos: I spoke with the vendor about the vendor contract renewal and they agreed to a 10% discount if we sign by next week.
+3/1/2024, 1:46 PM - Alice: haha yeah
+3/1/2024, 1:50 PM - Bob: Just finished reviewing the new marketing deck — looks solid, but we should double check the totals before sending.
+3/1/2024, 1:55 PM - Priya: Can someone forward me the latest version of the product roadmap review? I don't think I have the updated one.
+3/1/2024, 2:05 PM - Carlos: I spoke with the vendor about the security audit findings and they agreed to a 10% discount if we sign by next week.
+3/1/2024, 2:09 PM - Alice: Reminder: the Q4 hiring plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/1/2024, 2:18 PM - Bob: yes
+3/1/2024, 2:19 PM - Priya: Hey, can you take a look at the vendor contract renewal? I think there's an issue with the numbers on page 2.
+3/1/2024, 2:30 PM - Carlos: Just finished reviewing the Acme invoice #INV-2024-1047 — looks solid, but we should double check the totals before sending.
+3/1/2024, 2:37 PM - Alice: Quick update on the server migration plan: everything is on track, no blockers from my side.
+3/1/2024, 2:44 PM - Bob: Hey, can you take a look at the security audit findings? I think there's an issue with the numbers on page 2.
+3/1/2024, 2:54 PM - Priya: thanks!
+3/1/2024, 2:59 PM - Carlos: Can someone forward me the latest version of the vendor contract renewal? I don't think I have the updated one.
+3/1/2024, 3:10 PM - Alice: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/1/2024, 3:19 PM - Bob: Quick update on the Acme invoice #INV-2024-1053: everything is on track, no blockers from my side.
+3/1/2024, 3:25 PM - Priya: Quick update on the new marketing deck: everything is on track, no blockers from my side.
+3/1/2024, 3:30 PM - Carlos: sounds good
+3/1/2024, 3:38 PM - Alice: Just finished reviewing the Q4 hiring plan — looks solid, but we should double check the totals before sending.
+3/1/2024, 3:50 PM - Bob: Quick update on the Q3 budget report: everything is on track, no blockers from my side.
+3/1/2024, 3:53 PM - Priya: Can someone forward me the latest version of the new marketing deck? I don't think I have the updated one.
+3/1/2024, 4:04 PM - Carlos: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/1/2024, 4:15 PM - Alice: np
+3/1/2024, 4:19 PM - Bob: Can someone forward me the latest version of the product roadmap review? I don't think I have the updated one.
+3/1/2024, 4:22 PM - Priya: Reminder: the server migration plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/1/2024, 4:23 PM - Carlos: Can someone forward me the latest version of the product roadmap review? I don't think I have the updated one.
+3/1/2024, 4:31 PM - Alice: Reminder: the security audit findings is due Friday. Let's sync tomorrow morning to finalize it.
+3/1/2024, 4:33 PM - Bob: ok
+3/1/2024, 4:37 PM - Priya: Reminder: the Nairobi office lease is due Friday. Let's sync tomorrow morning to finalize it.
+3/1/2024, 4:47 PM - Carlos: Just finished reviewing the Q3 budget report — looks solid, but we should double check the totals before sending.
+3/1/2024, 4:59 PM - Alice: Hey, can you take a look at the Acme invoice #INV-2024-1068? I think there's an issue with the numbers on page 2.
+3/1/2024, 5:08 PM - Bob: Hey, can you take a look at the vendor contract renewal? I think there's an issue with the numbers on page 2.
+3/1/2024, 5:11 PM - Priya: yes
+3/1/2024, 5:14 PM - Carlos: Can someone forward me the latest version of the vendor contract renewal? I don't think I have the updated one.
+3/1/2024, 5:24 PM - Alice: Can someone forward me the latest version of the new marketing deck? I don't think I have the updated one.
+3/1/2024, 5:33 PM - Bob: Just finished reviewing the Q4 hiring plan — looks solid, but we should double check the totals before sending.
+3/1/2024, 5:38 PM - Priya: Quick update on the client meeting notes: everything is on track, no blockers from my side.
+3/1/2024, 5:49 PM - Carlos: thanks!
+3/1/2024, 5:58 PM - Alice: I spoke with the vendor about the Nairobi office lease and they agreed to a 10% discount if we sign by next week.
+3/1/2024, 6:02 PM - Bob: Hey, can you take a look at the vendor contract renewal? I think there's an issue with the numbers on page 2.
+3/1/2024, 6:08 PM - Priya: Hey, can you take a look at the client meeting notes? I think there's an issue with the numbers on page 2.
+3/1/2024, 6:17 PM - Carlos: Can someone forward me the latest version of the Q3 budget report? I don't think I have the updated one.
+3/1/2024, 6:27 PM - Alice: sure thing
+3/1/2024, 6:29 PM - Bob: Hey, can you take a look at the client meeting notes? I think there's an issue with the numbers on page 2.
+3/1/2024, 6:31 PM - Priya: Just finished reviewing the Q3 budget report — looks solid, but we should double check the totals before sending.
+3/1/2024, 6:33 PM - Carlos: Reminder: the Q3 budget report is due Friday. Let's sync tomorrow morning to finalize it.
+3/1/2024, 6:38 PM - Alice: Just finished reviewing the product roadmap review — looks solid, but we should double check the totals before sending.
+3/1/2024, 6:42 PM - Bob: haha yeah
+3/1/2024, 6:54 PM - Priya: Just finished reviewing the product roadmap review — looks solid, but we should double check the totals before sending.
+3/1/2024, 7:02 PM - Carlos: Can someone forward me the latest version of the security audit findings? I don't think I have the updated one.
+3/1/2024, 7:09 PM - Alice: I spoke with the vendor about the client meeting notes and they agreed to a 10% discount if we sign by next week.
+3/1/2024, 7:11 PM - Bob: Hey, can you take a look at the client meeting notes? I think there's an issue with the numbers on page 2.
+3/1/2024, 7:17 PM - Priya: thanks!
+3/1/2024, 7:25 PM - Carlos: I spoke with the vendor about the Q4 hiring plan and they agreed to a 10% discount if we sign by next week.
+3/1/2024, 7:36 PM - Alice: Quick update on the Q3 budget report: everything is on track, no blockers from my side.
+3/1/2024, 7:43 PM - Bob: Hey, can you take a look at the Acme invoice #INV-2024-1093? I think there's an issue with the numbers on page 2.
+3/1/2024, 7:47 PM - Priya: Hey, can you take a look at the Nairobi office lease? I think there's an issue with the numbers on page 2.
+3/1/2024, 7:51 PM - Carlos: sure thing
+3/1/2024, 7:54 PM - Alice: I spoke with the vendor about the product roadmap review and they agreed to a 10% discount if we sign by next week.
+3/1/2024, 7:59 PM - Bob: Just finished reviewing the Q4 hiring plan — looks solid, but we should double check the totals before sending.
+3/1/2024, 8:01 PM - Priya: Just finished reviewing the vendor contract renewal — looks solid, but we should double check the totals before sending.
+3/1/2024, 8:03 PM - Carlos: Can someone forward me the latest version of the vendor contract renewal? I don't think I have the updated one.
+3/1/2024, 8:14 PM - Alice: ok
+3/1/2024, 8:16 PM - Bob: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/1/2024, 8:23 PM - Priya: Just finished reviewing the client meeting notes — looks solid, but we should double check the totals before sending.
+3/1/2024, 8:27 PM - Carlos: I spoke with the vendor about the vendor contract renewal and they agreed to a 10% discount if we sign by next week.
+3/1/2024, 8:30 PM - Alice: Hey, can you take a look at the Q4 hiring plan? I think there's an issue with the numbers on page 2.
+3/1/2024, 8:31 PM - Bob: thanks!
+3/1/2024, 8:39 PM - Priya: Reminder: the Q4 hiring plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/1/2024, 8:51 PM - Carlos: I spoke with the vendor about the new marketing deck and they agreed to a 10% discount if we sign by next week.
+3/1/2024, 9:03 PM - Alice: Quick update on the product roadmap review: everything is on track, no blockers from my side.
+3/1/2024, 9:07 PM - Bob: Just finished reviewing the vendor contract renewal — looks solid, but we should double check the totals before sending.
+3/1/2024, 9:11 PM - Priya: np
+3/1/2024, 9:23 PM - Carlos: Can someone forward me the latest version of the Q3 budget report? I don't think I have the updated one.
+3/1/2024, 9:35 PM - Alice: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/1/2024, 9:36 PM - Bob: Hey, can you take a look at the Nairobi office lease? I think there's an issue with the numbers on page 2.
+3/1/2024, 9:45 PM - Priya: I spoke with the vendor about the security audit findings and they agreed to a 10% discount if we sign by next week.
+3/1/2024, 9:48 PM - Carlos: ok cool
+3/1/2024, 9:50 PM - Alice: Can someone forward me the latest version of the Q3 budget report? I don't think I have the updated one.
+3/2/2024, 9:00 AM - Bob: Hey, can you take a look at the server migration plan? I think there's an issue with the numbers on page 2.
+3/2/2024, 9:04 AM - Priya: Quick update on the Acme invoice #INV-2024-1118: everything is on track, no blockers from my side.
+3/2/2024, 9:14 AM - Carlos: Hey, can you take a look at the Q4 hiring plan? I think there's an issue with the numbers on page 2.
+3/2/2024, 9:24 AM - Alice: sure thing
+3/2/2024, 9:34 AM - Bob: Hey, can you take a look at the security audit findings? I think there's an issue with the numbers on page 2.
+3/2/2024, 9:45 AM - Priya: I spoke with the vendor about the Acme invoice #INV-2024-1122 and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 9:54 AM - Carlos: Can someone forward me the latest version of the security audit findings? I don't think I have the updated one.
+3/2/2024, 9:58 AM - Alice: Reminder: the Nairobi office lease is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 10:02 AM - Bob: got it
+3/2/2024, 10:05 AM - Priya: I spoke with the vendor about the new marketing deck and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 10:11 AM - Carlos: I spoke with the vendor about the new marketing deck and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 10:19 AM - Alice: Hey, can you take a look at the Acme invoice #INV-2024-1128? I think there's an issue with the numbers on page 2.
+3/2/2024, 10:21 AM - Bob: Can someone forward me the latest version of the security audit findings? I don't think I have the updated one.
+3/2/2024, 10:30 AM - Priya: sounds good
+3/2/2024, 10:35 AM - Carlos: Can someone forward me the latest version of the client meeting notes? I don't think I have the updated one.
+3/2/2024, 10:37 AM - Alice: Reminder: the server migration plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 10:42 AM - Bob: Reminder: the client meeting notes is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 10:51 AM - Priya: I spoke with the vendor about the server migration plan and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 11:01 AM - Carlos: np
+3/2/2024, 11:12 AM - Alice: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/2/2024, 11:23 AM - Bob: Reminder: the product roadmap review is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 11:28 AM - Priya: Just finished reviewing the Acme invoice #INV-2024-1138 — looks solid, but we should double check the totals before sending.
+3/2/2024, 11:40 AM - Carlos: Hey, can you take a look at the Acme invoice #INV-2024-1139? I think there's an issue with the numbers on page 2.
+3/2/2024, 11:43 AM - Alice: ok cool
+3/2/2024, 11:53 AM - Bob: Reminder: the new marketing deck is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 11:59 AM - Priya: Quick update on the client meeting notes: everything is on track, no blockers from my side.
+3/2/2024, 12:10 PM - Carlos: Quick update on the client meeting notes: everything is on track, no blockers from my side.
+3/2/2024, 12:18 PM - Alice: Can someone forward me the latest version of the new marketing deck? I don't think I have the updated one.
+3/2/2024, 12:19 PM - Bob: np
+3/2/2024, 12:26 PM - Priya: Quick update on the Acme invoice #INV-2024-1146: everything is on track, no blockers from my side.
+3/2/2024, 12:27 PM - Carlos: Hey, can you take a look at the new marketing deck? I think there's an issue with the numbers on page 2.
+3/2/2024, 12:38 PM - Alice: Just finished reviewing the Nairobi office lease — looks solid, but we should double check the totals before sending.
+3/2/2024, 12:50 PM - Bob: Just finished reviewing the new marketing deck — looks solid, but we should double check the totals before sending.
+3/2/2024, 12:59 PM - Priya: haha yeah
+3/2/2024, 1:00 PM - Carlos: Can someone forward me the latest version of the Q4 hiring plan? I don't think I have the updated one.
+3/2/2024, 1:12 PM - Alice: Hey, can you take a look at the Acme invoice #INV-2024-1152? I think there's an issue with the numbers on page 2.
+3/2/2024, 1:13 PM - Bob: Can someone forward me the latest version of the server migration plan? I don't think I have the updated one.
+3/2/2024, 1:22 PM - Priya: Can someone forward me the latest version of the Nairobi office lease? I don't think I have the updated one.
+3/2/2024, 1:29 PM - Carlos: yes
+3/2/2024, 1:34 PM - Alice: Hey, can you take a look at the server migration plan? I think there's an issue with the numbers on page 2.
+3/2/2024, 1:40 PM - Bob: Hey, can you take a look at the Nairobi office lease? I think there's an issue with the numbers on page 2.
+3/2/2024, 1:44 PM - Priya: Quick update on the client meeting notes: everything is on track, no blockers from my side.
+3/2/2024, 1:53 PM - Carlos: Reminder: the Acme invoice #INV-2024-1159 is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 2:03 PM - Alice: thanks!
+3/2/2024, 2:06 PM - Bob: Just finished reviewing the server migration plan — looks solid, but we should double check the totals before sending.
+3/2/2024, 2:07 PM - Priya: I spoke with the vendor about the server migration plan and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 2:13 PM - Carlos: Quick update on the server migration plan: everything is on track, no blockers from my side.
+3/2/2024, 2:25 PM - Alice: Quick update on the Q4 hiring plan: everything is on track, no blockers from my side.
+3/2/2024, 2:30 PM - Bob: sure thing
+3/2/2024, 2:32 PM - Priya: Quick update on the server migration plan: everything is on track, no blockers from my side.
+3/2/2024, 2:40 PM - Carlos: Hey, can you take a look at the Q4 hiring plan? I think there's an issue with the numbers on page 2.
+3/2/2024, 2:48 PM - Alice: Just finished reviewing the client meeting notes — looks solid, but we should double check the totals before sending.
+3/2/2024, 2:52 PM - Bob: Reminder: the Nairobi office lease is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 2:53 PM - Priya: sure thing
+3/2/2024, 2:59 PM - Carlos: I spoke with the vendor about the client meeting notes and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 3:04 PM - Alice: Hey, can you take a look at the new marketing deck? I think there's an issue with the numbers on page 2.
+3/2/2024, 3:13 PM - Bob: Quick update on the Nairobi office lease: everything is on track, no blockers from my side.
+3/2/2024, 3:22 PM - Priya: Quick update on the Q4 hiring plan: everything is on track, no blockers from my side.
+3/2/2024, 3:23 PM - Carlos: got it
+3/2/2024, 3:26 PM - Alice: Reminder: the Acme invoice #INV-2024-1176 is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 3:27 PM - Bob: Reminder: the security audit findings is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 3:34 PM - Priya: Can someone forward me the latest version of the Acme invoice #INV-2024-1178? I don't think I have the updated one.
+3/2/2024, 3:40 PM - Carlos: Quick update on the Nairobi office lease: everything is on track, no blockers from my side.
+3/2/2024, 3:50 PM - Alice: thanks!
+3/2/2024, 3:57 PM - Bob: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/2/2024, 4:02 PM - Priya: Just finished reviewing the security audit findings — looks solid, but we should double check the totals before sending.
+3/2/2024, 4:09 PM - Carlos: Quick update on the Q3 budget report: everything is on track, no blockers from my side.
+3/2/2024, 4:18 PM - Alice: Can someone forward me the latest version of the Q3 budget report? I don't think I have the updated one.
+3/2/2024, 4:24 PM - Bob: sure thing
+3/2/2024, 4:35 PM - Priya: Hey, can you take a look at the Q4 hiring plan? I think there's an issue with the numbers on page 2.
+3/2/2024, 4:41 PM - Carlos: Can someone forward me the latest version of the Nairobi office lease? I don't think I have the updated one.
+3/2/2024, 4:46 PM - Alice: Quick update on the Acme invoice #INV-2024-1188: everything is on track, no blockers from my side.
+3/2/2024, 4:57 PM - Bob: Reminder: the product roadmap review is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 5:03 PM - Priya: thanks!
+3/2/2024, 5:08 PM - Carlos: Quick update on the Q4 hiring plan: everything is on track, no blockers from my side.
+3/2/2024, 5:12 PM - Alice: Just finished reviewing the product roadmap review — looks solid, but we should double check the totals before sending.
+3/2/2024, 5:19 PM - Bob: Quick update on the Q4 hiring plan: everything is on track, no blockers from my side.
+3/2/2024, 5:29 PM - Priya: Can someone forward me the latest version of the server migration plan? I don't think I have the updated one.
+3/2/2024, 5:36 PM - Carlos: np
+3/2/2024, 5:41 PM - Alice: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/2/2024, 5:48 PM - Bob: Just finished reviewing the new marketing deck — looks solid, but we should double check the totals before sending.
+3/2/2024, 5:59 PM - Priya: Can someone forward me the latest version of the security audit findings? I don't think I have the updated one.
+3/2/2024, 6:07 PM - Carlos: I spoke with the vendor about the Nairobi office lease and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 6:18 PM - Alice: haha yeah
+3/2/2024, 6:26 PM - Bob: Can someone forward me the latest version of the client meeting notes? I don't think I have the updated one.
+3/2/2024, 6:28 PM - Priya: Quick update on the server migration plan: everything is on track, no blockers from my side.
+3/2/2024, 6:39 PM - Carlos: Can someone forward me the latest version of the new marketing deck? I don't think I have the updated one.
+3/2/2024, 6:41 PM - Alice: Reminder: the security audit findings is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 6:52 PM - Bob: sure thing
+3/2/2024, 6:56 PM - Priya: Just finished reviewing the new marketing deck — looks solid, but we should double check the totals before sending.
+3/2/2024, 6:57 PM - Carlos: Hey, can you take a look at the server migration plan? I think there's an issue with the numbers on page 2.
+3/2/2024, 7:07 PM - Alice: I spoke with the vendor about the client meeting notes and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 7:14 PM - Bob: I spoke with the vendor about the Acme invoice #INV-2024-1209 and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 7:18 PM - Priya: will do
+3/2/2024, 7:25 PM - Carlos: I spoke with the vendor about the Q4 hiring plan and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 7:36 PM - Alice: Just finished reviewing the client meeting notes — looks solid, but we should double check the totals before sending.
+3/2/2024, 7:43 PM - Bob: Hey, can you take a look at the Q3 budget report? I think there's an issue with the numbers on page 2.
+3/2/2024, 7:55 PM - Priya: Just finished reviewing the client meeting notes — looks solid, but we should double check the totals before sending.
+3/2/2024, 8:03 PM - Carlos: ok cool
+3/2/2024, 8:07 PM - Alice: Can someone forward me the latest version of the Q3 budget report? I don't think I have the updated one.
+3/2/2024, 8:10 PM - Bob: I spoke with the vendor about the Acme invoice #INV-2024-1217 and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 8:19 PM - Priya: Quick update on the vendor contract renewal: everything is on track, no blockers from my side.
+3/2/2024, 8:25 PM - Carlos: Can someone forward me the latest version of the product roadmap review? I don't think I have the updated one.
+3/2/2024, 8:35 PM - Alice: haha yeah
+3/2/2024, 8:44 PM - Bob: I spoke with the vendor about the product roadmap review and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 8:56 PM - Priya: Just finished reviewing the vendor contract renewal — looks solid, but we should double check the totals before sending.
+3/2/2024, 9:01 PM - Carlos: I spoke with the vendor about the vendor contract renewal and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 9:06 PM - Alice: Quick update on the client meeting notes: everything is on track, no blockers from my side.
+3/2/2024, 9:14 PM - Bob: ok cool
+3/2/2024, 9:22 PM - Priya: Reminder: the client meeting notes is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 9:27 PM - Carlos: Quick update on the Acme invoice #INV-2024-1227: everything is on track, no blockers from my side.
+3/2/2024, 9:33 PM - Alice: Reminder: the client meeting notes is due Friday. Let's sync tomorrow morning to finalize it.
+3/2/2024, 9:35 PM - Bob: Can someone forward me the latest version of the Nairobi office lease? I don't think I have the updated one.
+3/2/2024, 9:38 PM - Priya: yes
+3/2/2024, 9:50 PM - Carlos: I spoke with the vendor about the client meeting notes and they agreed to a 10% discount if we sign by next week.
+3/2/2024, 9:54 PM - Alice: Quick update on the server migration plan: everything is on track, no blockers from my side.
+3/3/2024, 9:01 AM - Bob: I spoke with the vendor about the Acme invoice #INV-2024-1233 and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 9:09 AM - Priya: Can someone forward me the latest version of the Nairobi office lease? I don't think I have the updated one.
+3/3/2024, 9:10 AM - Carlos: thanks!
+3/3/2024, 9:17 AM - Alice: I spoke with the vendor about the client meeting notes and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 9:18 AM - Bob: Quick update on the security audit findings: everything is on track, no blockers from my side.
+3/3/2024, 9:26 AM - Priya: I spoke with the vendor about the security audit findings and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 9:31 AM - Carlos: Reminder: the Q3 budget report is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 9:38 AM - Alice: thanks!
+3/3/2024, 9:50 AM - Bob: Quick update on the product roadmap review: everything is on track, no blockers from my side.
+3/3/2024, 9:54 AM - Priya: Can someone forward me the latest version of the product roadmap review? I don't think I have the updated one.
+3/3/2024, 9:59 AM - Carlos: Just finished reviewing the vendor contract renewal — looks solid, but we should double check the totals before sending.
+3/3/2024, 10:00 AM - Alice: I spoke with the vendor about the Q4 hiring plan and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 10:06 AM - Bob: thanks!
+3/3/2024, 10:09 AM - Priya: Quick update on the Q4 hiring plan: everything is on track, no blockers from my side.
+3/3/2024, 10:19 AM - Carlos: Just finished reviewing the vendor contract renewal — looks solid, but we should double check the totals before sending.
+3/3/2024, 10:26 AM - Alice: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/3/2024, 10:37 AM - Bob: Can someone forward me the latest version of the security audit findings? I don't think I have the updated one.
+3/3/2024, 10:39 AM - Priya: ok
+3/3/2024, 10:47 AM - Carlos: Just finished reviewing the Q4 hiring plan — looks solid, but we should double check the totals before sending.
+3/3/2024, 10:52 AM - Alice: Hey, can you take a look at the server migration plan? I think there's an issue with the numbers on page 2.
+3/3/2024, 10:56 AM - Bob: Reminder: the Q4 hiring plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 11:02 AM - Priya: Reminder: the vendor contract renewal is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 11:07 AM - Carlos: thanks!
+3/3/2024, 11:09 AM - Alice: Reminder: the Q4 hiring plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 11:21 AM - Bob: Hey, can you take a look at the vendor contract renewal? I think there's an issue with the numbers on page 2.
+3/3/2024, 11:27 AM - Priya: Hey, can you take a look at the product roadmap review? I think there's an issue with the numbers on page 2.
+3/3/2024, 11:29 AM - Carlos: Quick update on the client meeting notes: everything is on track, no blockers from my side.
+3/3/2024, 11:30 AM - Alice: ok
+3/3/2024, 11:31 AM - Bob: Just finished reviewing the client meeting notes — looks solid, but we should double check the totals before sending.
+3/3/2024, 11:35 AM - Priya: Just finished reviewing the security audit findings — looks solid, but we should double check the totals before sending.
+3/3/2024, 11:46 AM - Carlos: I spoke with the vendor about the server migration plan and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 11:50 AM - Alice: Can someone forward me the latest version of the Acme invoice #INV-2024-1264? I don't think I have the updated one.
+3/3/2024, 12:02 PM - Bob: haha yeah
+3/3/2024, 12:05 PM - Priya: Reminder: the new marketing deck is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 12:17 PM - Carlos: Can someone forward me the latest version of the security audit findings? I don't think I have the updated one.
+3/3/2024, 12:22 PM - Alice: Just finished reviewing the Acme invoice #INV-2024-1268 — looks solid, but we should double check the totals before sending.
+3/3/2024, 12:23 PM - Bob: Can someone forward me the latest version of the Acme invoice #INV-2024-1269? I don't think I have the updated one.
+3/3/2024, 12:33 PM - Priya: np
+3/3/2024, 12:45 PM - Carlos: I spoke with the vendor about the Q4 hiring plan and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 12:55 PM - Alice: Hey, can you take a look at the client meeting notes? I think there's an issue with the numbers on page 2.
+3/3/2024, 1:07 PM - Bob: Hey, can you take a look at the client meeting notes? I think there's an issue with the numbers on page 2.
+3/3/2024, 1:17 PM - Priya: Quick update on the new marketing deck: everything is on track, no blockers from my side.
+3/3/2024, 1:27 PM - Carlos: sounds good
+3/3/2024, 1:36 PM - Alice: Reminder: the Q3 budget report is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 1:42 PM - Bob: Quick update on the Q4 hiring plan: everything is on track, no blockers from my side.
+3/3/2024, 1:53 PM - Priya: Can someone forward me the latest version of the Acme invoice #INV-2024-1278? I don't think I have the updated one.
+3/3/2024, 2:00 PM - Carlos: Hey, can you take a look at the Nairobi office lease? I think there's an issue with the numbers on page 2.
+3/3/2024, 2:02 PM - Alice: haha yeah
+3/3/2024, 2:13 PM - Bob: Reminder: the Q4 hiring plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 2:16 PM - Priya: Quick update on the vendor contract renewal: everything is on track, no blockers from my side.
+3/3/2024, 2:28 PM - Carlos: Just finished reviewing the Q4 hiring plan — looks solid, but we should double check the totals before sending.
+3/3/2024, 2:33 PM - Alice: Quick update on the product roadmap review: everything is on track, no blockers from my side.
+3/3/2024, 2:42 PM - Bob: will do
+3/3/2024, 2:49 PM - Priya: I spoke with the vendor about the vendor contract renewal and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 2:55 PM - Carlos: Reminder: the security audit findings is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 3:00 PM - Alice: Hey, can you take a look at the client meeting notes? I think there's an issue with the numbers on page 2.
+3/3/2024, 3:08 PM - Bob: Just finished reviewing the vendor contract renewal — looks solid, but we should double check the totals before sending.
+3/3/2024, 3:18 PM - Priya: will do
+3/3/2024, 3:19 PM - Carlos: Reminder: the Q4 hiring plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 3:22 PM - Alice: Reminder: the vendor contract renewal is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 3:28 PM - Bob: Just finished reviewing the vendor contract renewal — looks solid, but we should double check the totals before sending.
+3/3/2024, 3:33 PM - Priya: Reminder: the new marketing deck is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 3:45 PM - Carlos: will do
+3/3/2024, 3:46 PM - Alice: Can someone forward me the latest version of the new marketing deck? I don't think I have the updated one.
+3/3/2024, 3:48 PM - Bob: Just finished reviewing the product roadmap review — looks solid, but we should double check the totals before sending.
+3/3/2024, 3:55 PM - Priya: Quick update on the client meeting notes: everything is on track, no blockers from my side.
+3/3/2024, 3:59 PM - Carlos: Can someone forward me the latest version of the vendor contract renewal? I don't think I have the updated one.
+3/3/2024, 4:10 PM - Alice: haha yeah
+3/3/2024, 4:11 PM - Bob: I spoke with the vendor about the vendor contract renewal and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 4:15 PM - Priya: Reminder: the Acme invoice #INV-2024-1302 is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 4:19 PM - Carlos: Quick update on the Q4 hiring plan: everything is on track, no blockers from my side.
+3/3/2024, 4:29 PM - Alice: Quick update on the new marketing deck: everything is on track, no blockers from my side.
+3/3/2024, 4:37 PM - Bob: got it
+3/3/2024, 4:43 PM - Priya: Can someone forward me the latest version of the product roadmap review? I don't think I have the updated one.
+3/3/2024, 4:52 PM - Carlos: Quick update on the Q4 hiring plan: everything is on track, no blockers from my side.
+3/3/2024, 5:04 PM - Alice: Reminder: the Nairobi office lease is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 5:09 PM - Bob: Reminder: the vendor contract renewal is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 5:13 PM - Priya: np
+3/3/2024, 5:17 PM - Carlos: Quick update on the Acme invoice #INV-2024-1311: everything is on track, no blockers from my side.
+3/3/2024, 5:29 PM - Alice: Hey, can you take a look at the Nairobi office lease? I think there's an issue with the numbers on page 2.
+3/3/2024, 5:32 PM - Bob: Quick update on the product roadmap review: everything is on track, no blockers from my side.
+3/3/2024, 5:44 PM - Priya: Just finished reviewing the client meeting notes — looks solid, but we should double check the totals before sending.
+3/3/2024, 5:49 PM - Carlos: haha yeah
+3/3/2024, 5:59 PM - Alice: Can someone forward me the latest version of the security audit findings? I don't think I have the updated one.
+3/3/2024, 6:03 PM - Bob: Hey, can you take a look at the new marketing deck? I think there's an issue with the numbers on page 2.
+3/3/2024, 6:09 PM - Priya: Just finished reviewing the new marketing deck — looks solid, but we should double check the totals before sending.
+3/3/2024, 6:10 PM - Carlos: Reminder: the server migration plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 6:13 PM - Alice: ok cool
+3/3/2024, 6:14 PM - Bob: Hey, can you take a look at the new marketing deck? I think there's an issue with the numbers on page 2.
+3/3/2024, 6:26 PM - Priya: Reminder: the product roadmap review is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 6:34 PM - Carlos: Quick update on the server migration plan: everything is on track, no blockers from my side.
+3/3/2024, 6:44 PM - Alice: Hey, can you take a look at the Acme invoice #INV-2024-1324? I think there's an issue with the numbers on page 2.
+3/3/2024, 6:52 PM - Bob: np
+3/3/2024, 6:58 PM - Priya: I spoke with the vendor about the vendor contract renewal and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 7:03 PM - Carlos: Hey, can you take a look at the server migration plan? I think there's an issue with the numbers on page 2.
+3/3/2024, 7:05 PM - Alice: Hey, can you take a look at the vendor contract renewal? I think there's an issue with the numbers on page 2.
+3/3/2024, 7:07 PM - Bob: I spoke with the vendor about the Q4 hiring plan and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 7:18 PM - Priya: will do
+3/3/2024, 7:21 PM - Carlos: Just finished reviewing the Q3 budget report — looks solid, but we should double check the totals before sending.
+3/3/2024, 7:23 PM - Alice: Reminder: the security audit findings is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 7:32 PM - Bob: Hey, can you take a look at the client meeting notes? I think there's an issue with the numbers on page 2.
+3/3/2024, 7:42 PM - Priya: Can someone forward me the latest version of the Q4 hiring plan? I don't think I have the updated one.
+3/3/2024, 7:46 PM - Carlos: will do
+3/3/2024, 7:54 PM - Alice: I spoke with the vendor about the product roadmap review and they agreed to a 10% discount if we sign by next week.
+3/3/2024, 8:04 PM - Bob: Reminder: the vendor contract renewal is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 8:14 PM - Priya: Reminder: the Q4 hiring plan is due Friday. Let's sync tomorrow morning to finalize it.
+3/3/2024, 8:24 PM - Carlos: Hey, can you take a look at the security audit findings? I think there's an issue with the numbers on page 2.
+3/3/2024, 8:28 PM - Alice: sounds good
+3/3/2024, 9:29 PM - Priya: Final decision: we're signing the contract with Zylo Robotics for the warehouse automation project, budget approved at $842,000.
