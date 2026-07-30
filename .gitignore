@@ -2,12 +2,12 @@ __pycache__/
 *.pyc
 *.egg-info/
 chroma_db/
-structured_db/
+/structured_db/
 .pytest_cache/
 *.db
 node_modules/
 diff.txt
-test_*.py
+/test_*.py
 rag_pipeline/uploads/
 .agents/
 dummy_ingest/
