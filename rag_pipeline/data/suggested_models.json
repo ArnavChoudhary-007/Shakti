@@ -1,0 +1,62 @@
+[
+  {
+    "name": "qwen2.5:0.5b",
+    "approx_size_gb": 0.4,
+    "description": "Ultra-lightweight model for very constrained machines or the fastest possible responses",
+    "tags": ["fast", "light"]
+  },
+  {
+    "name": "llama3.2:1b",
+    "approx_size_gb": 1.3,
+    "description": "Meta's extremely capable lightweight reasoning model, good default for low-RAM setups",
+    "tags": ["fast", "reasoning", "recommended"]
+  },
+  {
+    "name": "qwen2.5:1.5b",
+    "approx_size_gb": 1.0,
+    "description": "Strong coding and logic in a very small footprint",
+    "tags": ["coding", "light"]
+  },
+  {
+    "name": "gemma2:2b",
+    "approx_size_gb": 1.6,
+    "description": "Google's 2B model, punches well above its weight for general use",
+    "tags": ["general"]
+  },
+  {
+    "name": "llama3.2:3b",
+    "approx_size_gb": 2.0,
+    "description": "Excellent balance of speed and instruction-following for everyday queries",
+    "tags": ["general", "recommended"]
+  },
+  {
+    "name": "phi3:mini",
+    "approx_size_gb": 2.2,
+    "description": "Microsoft's compact model with strong reasoning for its size",
+    "tags": ["reasoning"]
+  },
+  {
+    "name": "deepseek-coder:6.7b",
+    "approx_size_gb": 3.8,
+    "description": "Strong dedicated coding model, good for code-heavy document sets",
+    "tags": ["coding"]
+  },
+  {
+    "name": "mistral:7b",
+    "approx_size_gb": 4.1,
+    "description": "Classic, reliable general-purpose 7B model",
+    "tags": ["general"]
+  },
+  {
+    "name": "llama3.1:8b",
+    "approx_size_gb": 4.7,
+    "description": "Meta's flagship 8B model — strong logic and good fit for RAG workloads",
+    "tags": ["reasoning", "recommended"]
+  },
+  {
+    "name": "qwen2.5:14b",
+    "approx_size_gb": 9.0,
+    "description": "Exceptional coding and reasoning for machines with more headroom",
+    "tags": ["reasoning", "coding"]
+  }
+]

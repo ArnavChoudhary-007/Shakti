@@ -34,6 +34,7 @@ from rag_pipeline.core.kg_builder import build_graph_layout
 load_dotenv()
 
 import httpx
+import requests
 import yaml
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,7 +48,13 @@ sys.path.insert(0, str(_ROOT.parent))
 
 from rag_pipeline import get_config
 from rag_pipeline.core.embedder import Embedder
-from rag_pipeline.core.model_catalog import get_catalog, build_recommendations
+from rag_pipeline.core.model_catalog import (
+    get_system_specs,
+    get_installed_models,
+    build_installed_view,
+    load_suggested_models,
+    build_suggestions_view,
+)
 from rag_pipeline.core.vectorstore import get_vector_store
 from rag_pipeline.core.retriever import Retriever
 from rag_pipeline.core.generator import Generator, build_prompt_preview
@@ -309,44 +316,32 @@ class PullRequest(BaseModel):
 
 @app.get("/system/recommendations", tags=["System"])
 async def system_recommendations():
-    """Detect system specs and return recommended models."""
-    ram_gb = round(psutil.virtual_memory().total / (1024 ** 3), 1)
-    cpu_cores = psutil.cpu_count(logical=True) or 4
+    """
+    Live hardware specs + live Ollama model inventory. Never returns
+    hardcoded hardware or hardcoded model data — if Ollama isn't reachable,
+    this fails loudly (503) rather than falling back to stale/fake data.
+    """
+    specs = get_system_specs()
+    headroom = _CONFIG.get("system", {}).get("ram_headroom_factor", 0.6)
+    budget_gb = round(specs["total_ram_gb"] * headroom, 1)
 
-    # Fetch currently downloaded models
-    downloaded_models = set()
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{_OLLAMA_HOST}/api/tags")
-            if resp.status_code == 200:
-                for m in resp.json().get("models", []):
-                    name = m.get("name", "")
-                    downloaded_models.add(name)
-                    if name.endswith(":latest"):
-                        downloaded_models.add(name.replace(":latest", ""))
-    except Exception:
-        pass
+        installed_raw = await asyncio.to_thread(get_installed_models, _OLLAMA_HOST)
+    except requests.RequestException as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Ollama is not running or unreachable at {_OLLAMA_HOST} — start it to see available models. ({e})",
+        )
 
-    catalog = get_catalog()
-    recommended = build_recommendations(ram_gb, catalog)
-    
-    models = [m for m in recommended if m["name"] not in downloaded_models][:10]
-    models.sort(key=lambda x: float(x["size"].replace(" GB", "")))
-
-    if ram_gb < 8:
-        tier = "light"
-    elif ram_gb < 16:
-        tier = "standard"
-    else:
-        tier = "heavy"
+    installed = build_installed_view(installed_raw, budget_gb)
+    installed_names = {m["name"] for m in installed}
+    suggested = build_suggestions_view(load_suggested_models(), installed_names, budget_gb)
 
     return {
-        "hardware": {
-            "ram_gb": ram_gb,
-            "cpu_cores": cpu_cores
-        },
-        "tier": tier,
-        "models": models
+        "specs": specs,
+        "ram_budget_gb": budget_gb,
+        "installed_models": installed,
+        "suggested_models": suggested,
     }
 
 @app.post("/ollama/pull", tags=["System"])
@@ -798,36 +793,6 @@ async def clear_system_data(workspace_id: str = "default"):
     except Exception as e:
         logger.error(f"Failed to clear system data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# ── /system/recommendations ───────────────────────────────────
-
-@app.get("/system/recommendations", tags=["System"])
-async def get_system_recommendations():
-    """Return mock hardware data and recommended models."""
-    return {
-        "hardware": {"ram_gb": 16, "cpu_cores": 8},
-        "models": [
-            {
-                "name": "llama3.2:1b",
-                "size": "1.3 GB",
-                "desc": "Extremely fast, lightweight model perfect for quick everyday queries.",
-                "tags": ["POPULAR", "FAST"]
-            },
-            {
-                "name": "deepseek-coder:1.3b",
-                "size": "776 MB",
-                "desc": "Great small model fine-tuned specifically for coding tasks.",
-                "tags": ["CODING", "FAST"]
-            },
-            {
-                "name": "qwen2.5:0.5b",
-                "size": "397 MB",
-                "desc": "Ultra lightweight versatile model.",
-                "tags": ["FAST"]
-            }
-        ]
-    }
-
 
 # ── /ollama Endpoints ─────────────────────────────────────────
 class PullRequest(BaseModel):

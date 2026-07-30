@@ -26,6 +26,10 @@ ollama:
   default_vision_model: "llava"      # multimodal / vision model
   request_timeout: 300               # seconds
 
+# ── System / model recommendations ────────────────────────────
+system:
+  ram_headroom_factor: 0.6           # fraction of total RAM considered usable for a model
+
 # ── Retrieval ────────────────────────────────────────────────
 retrieval:
   final_k: 6

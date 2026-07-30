@@ -1342,9 +1342,8 @@
               <div class="mm-sort">
                 Sort by: 
                 <select id="sortRecommended" onchange="handleSortRecommendations()">
-                  <option value="popularity">Popularity</option>
+                  <option value="default">Recommended</option>
                   <option value="size">Size</option>
-                  <option value="newest">Newest</option>
                 </select>
               </div>
             </div>
@@ -2633,13 +2632,24 @@
     try {
       const res = await fetch(`${API}/system/recommendations`);
       const data = await res.json();
-      
-      document.getElementById('hardwareText').textContent = 
-        `Detected: ${data.hardware.ram_gb} GB RAM | ${data.hardware.cpu_cores} Logical Cores`;
 
-      window.recommendedModelsData = data.models || [];
+      if (!res.ok) {
+        // Structured error from the backend (e.g. Ollama unreachable) — show
+        // the real reason, never fall back to stale/fake data.
+        document.getElementById('hardwareText').textContent = data.detail || 'Unable to reach Ollama.';
+        window.recommendedModelsData = [];
+        document.getElementById('badgeRecommended').textContent = '0';
+        renderRecommendedModels([]);
+        return;
+      }
+
+      const specs = data.specs || {};
+      document.getElementById('hardwareText').textContent =
+        `Detected: ${specs.total_ram_gb} GB RAM (${specs.available_ram_gb} GB available) | ${specs.cpu_cores} Logical Cores`;
+
+      window.recommendedModelsData = data.suggested_models || [];
       document.getElementById('badgeRecommended').textContent = window.recommendedModelsData.length;
-      
+
       handleSortRecommendations();
     } catch (e) {
       console.error('Failed to fetch recommendations:', e);
@@ -2651,25 +2661,15 @@
     const val = document.getElementById('sortRecommended').value;
     const searchInput = document.getElementById('modelSearchInput');
     const q = searchInput ? searchInput.value.toLowerCase() : '';
-    let sorted = window.recommendedModelsData.filter(m => 
-      m.name.toLowerCase().includes(q) || 
+    let sorted = window.recommendedModelsData.filter(m =>
+      m.name.toLowerCase().includes(q) ||
       (m.tags && m.tags.some(t => t.toLowerCase().includes(q)))
     );
-    
+
     if (val === 'size') {
-      sorted.sort((a, b) => {
-        const parseSize = (s) => {
-          if (!s) return 0;
-          const val = parseFloat(s);
-          if (s.toLowerCase().includes('gb')) return val * 1024;
-          return val;
-        };
-        return parseSize(a.size) - parseSize(b.size);
-      });
-    } else if (val === 'newest') {
-      sorted.reverse();
+      sorted.sort((a, b) => (a.approx_size_gb || 0) - (b.approx_size_gb || 0));
     }
-    
+
     renderRecommendedModels(sorted);
   }
 
@@ -2683,7 +2683,9 @@
       else if (model.name.includes('phi')) { iconClass = 'microsoft'; iconChar = '🪟'; }
       else if (model.name.includes('deepseek')) { iconClass = 'deepseek'; iconChar = '🐳'; }
       else if (model.name.includes('mistral')) { iconClass = 'mistral'; iconChar = '🏰'; }
-      
+
+      const sizeLabel = typeof model.approx_size_gb === 'number' ? `~${model.approx_size_gb} GB` : 'Size unknown';
+
       const card = document.createElement('div');
       card.className = 'mm-card';
       card.innerHTML = `
@@ -2691,16 +2693,16 @@
           <div class="mm-card-logo ${iconClass}">${iconChar}</div>
           <div class="mm-card-title-col">
             <div class="mm-card-title">${model.name}</div>
-            <div class="mm-card-size">${model.size}</div>
+            <div class="mm-card-size">${sizeLabel}</div>
           </div>
           <div class="mm-card-bookmark">🔖</div>
         </div>
-        <div class="mm-card-desc">${model.desc}</div>
+        <div class="mm-card-desc">${model.description || ''}</div>
         <div class="mm-card-tags">
-          ${model.tags.map(t => {
+          ${(model.tags || []).map(t => {
             let cls = '';
             const tl = t.toLowerCase();
-            if (tl === 'popular') cls = 'popular';
+            if (tl === 'recommended') cls = 'popular';
             else if (tl === 'fast') cls = 'fast';
             else if (tl === 'reasoning') cls = 'reasoning';
             else if (tl === 'coding') cls = 'coding';
@@ -2708,6 +2710,11 @@
             return `<span class="mm-tag ${cls}">${t}</span>`;
           }).join('')}
         </div>
+        ${model.installed ? `
+        <button class="mm-btn-dl" disabled style="opacity:0.6; cursor:default;">
+          <span class="icon">✅</span> Installed
+        </button>
+        ` : `
         <button class="mm-btn-dl" id="dlBtn-${model.name.replace(':','-')}" onclick="downloadModel('${model.name}')">
           <span class="icon">📥</span> Download
         </button>
@@ -2718,6 +2725,7 @@
           <button onclick="cancelDownload('${model.name}')" style="background:#e53e3e; color:white; border:none; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:12px; font-weight:600;" title="Cancel Download">✖</button>
         </div>
         <div class="download-status" id="dlStat-${model.name.replace(':','-')}">Preparing...</div>
+        `}
       `;
       grid.appendChild(card);
     });
