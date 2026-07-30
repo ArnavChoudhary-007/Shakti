@@ -167,6 +167,11 @@ _SINGLE_CHUNK_TYPES = {"invoice"}
 # Source types using conversation-window grouping
 _CHAT_TYPES = {"whatsapp", "telegram", "slack", "teams", "audio"}
 
+# Message-log chat types that batch into a tumbling window (excludes "audio",
+# which already chunks by size/overlap via its own config and wasn't part of
+# the one-message-per-chunk problem this is fixing).
+_CHAT_WINDOW_TYPES = {"whatsapp", "telegram", "slack", "teams"}
+
 # Source types using recursive text splitting
 _TEXT_SPLIT_TYPES = {"pdf", "docx", "pptx", "email", "mbox", "eml", "pst", "csv"}
 
@@ -208,7 +213,11 @@ class Chunker:
             return self._single_chunk(doc)
 
         if st in _CHAT_TYPES:
-            return self._single_chunk(doc)  # individual messages → already atomic
+            # Windowing needs sibling messages, which a single doc doesn't
+            # have — callers with a whole message log should use
+            # chunk_batch() instead. This path (single doc in) stays atomic,
+            # e.g. for a file that only produced one message.
+            return self._single_chunk(doc)
 
         if st in _EXCEL_TYPES:
             # Tabular sheets get a single chunk; narrative sheets are text-split
@@ -245,6 +254,81 @@ class Chunker:
                 "has_structured_data": doc.structured_data is not None,
             },
         )]
+
+    # ── Batch dispatch (for message logs) ───────────────────────
+
+    def chunk_batch(self, docs: List[Any]) -> List[Chunk]:
+        """
+        Chunk a whole ordered list of sibling NormalizedDocuments from the
+        same file. Only chat message-log types (_CHAT_WINDOW_TYPES) window
+        across docs; anything else is chunked independently via chunk() and
+        the results concatenated, so this is a safe drop-in for any doc list.
+        """
+        if not docs:
+            return []
+
+        st = docs[0].source_type
+        if st in _CHAT_WINDOW_TYPES:
+            return self._chunk_chat_window(docs)
+
+        chunks: List[Chunk] = []
+        for doc in docs:
+            chunks.extend(self.chunk(doc))
+        return chunks
+
+    # ── Chat tumbling window ─────────────────────────────────────
+
+    def _chunk_chat_window(self, docs: List[Any]) -> List[Chunk]:
+        """
+        Group consecutive messages into non-overlapping windows of
+        `chat_window` messages each (advance by chat_window, never slide),
+        so a 500-message export produces ~500/chat_window chunks instead of
+        500. Each chunk keeps every message's speaker + timestamp inline,
+        and its citation points at the message range it covers.
+        """
+        window = max(1, int(self.chat_window))
+        groups = [docs[i:i + window] for i in range(0, len(docs), window)]
+        total = len(groups)
+        chunks: List[Chunk] = []
+
+        for idx, group in enumerate(groups):
+            lines = []
+            speakers: List[str] = []
+            for d in group:
+                sender = d.citation_meta.sender or "Unknown"
+                if sender not in speakers:
+                    speakers.append(sender)
+                lines.append(f"{sender} [{d.citation_meta.location_label}]: {d.text}")
+            text = "\n".join(lines)
+
+            first, last = group[0], group[-1]
+            base_cm = _citation_meta_dict(first)
+            base_cm["location_label"] = f"{first.citation_meta.location_label} – {last.citation_meta.location_label}"
+            base_cm["sender"] = ", ".join(speakers)
+            if total > 1:
+                base_cm["chunk_info"] = f"chunk {idx + 1}/{total}"
+
+            chunks.append(Chunk(
+                chunk_id=str(uuid.uuid4()),
+                doc_id=first.doc_id,
+                source_type=first.source_type,
+                text=text,
+                citation_meta=base_cm,
+                chunk_index=idx,
+                total_chunks=total,
+                metadata={
+                    "source_type": first.source_type,
+                    "file_name": base_cm["file_name"],
+                    "file_path": base_cm["file_path"],
+                    "location_label": base_cm["location_label"],
+                    "sender": base_cm["sender"],
+                    "title": first.title,
+                    "chunk_index": idx,
+                    "total_chunks": total,
+                    "has_structured_data": False,
+                },
+            ))
+        return chunks
 
     # ── Text-split ────────────────────────────────────────────
 

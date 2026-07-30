@@ -627,6 +627,7 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
 
     aggregated_texts = []
     aggregated_chunk_meta = []
+    docs_for_chunking: List[Any] = []
 
     for env in envelopes:
         doc = normalizer.normalize(env)
@@ -656,14 +657,11 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
                     file_path=env.get("raw_path", file_path),
                 )
 
-        # Chunk
-        t0 = time.perf_counter()
-        chunks = chunker.chunk(doc)
-        stage_times["chunk"] += time.perf_counter() - t0
-        if chunks:
-            for chunk in chunks:
-                aggregated_texts.append(chunk.text)
-                aggregated_chunk_meta.append((chunk, doc.title, workspace_id))
+        # Defer chunking until every envelope in this file is normalized —
+        # chat message logs need their sibling messages to window correctly
+        # (see chunker.chunk_batch). Non-chat docs chunk the same as before,
+        # just after the loop instead of inline.
+        docs_for_chunking.append(doc)
 
         # KG: queue the raw text for extraction later, behind the "Build Graph"
         # action — no Ollama call here, so ingestion never blocks on it.
@@ -677,6 +675,13 @@ async def _ingest_file_path(file_path: str, original_name: str, workspace_id: st
                 text=doc.text,
             )
             stage_times["kg"] += time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    all_chunked = chunker.chunk_batch(docs_for_chunking)
+    stage_times["chunk"] = time.perf_counter() - t0
+    for chunk in all_chunked:
+        aggregated_texts.append(chunk.text)
+        aggregated_chunk_meta.append((chunk, chunk.metadata.get("title", ""), workspace_id))
 
     # Embed and Store in batches to avoid hogging threads and memory
     if aggregated_texts:

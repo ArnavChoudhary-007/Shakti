@@ -112,6 +112,40 @@ def test_chunk_whatsapp():
     assert chunks[0].citation_meta["sender"] == "Bob"
 
 
+def test_chunk_whatsapp_window():
+    """A whole message log tumbling-windows (advance by N, not slide by 1),
+    and content from the very end of the export still survives."""
+    senders = ["Alice", "Bob"]
+    docs = [
+        _make_doc("whatsapp", f"Message number {i} content, unique marker MARK{i}.",
+                   message_index=i, datetime=f"1/15/2024 10:{i:02d} AM",
+                   sender=senders[i % 2], participants=senders, total_messages=25)
+        for i in range(25)
+    ]
+
+    chunker_default_window = Chunker()  # window_messages default = 10
+    chunks = chunker_default_window.chunk_batch(docs)
+
+    # Tumbling (advance by 10), not sliding (advance by 1): 25 messages / 10 -> 3 chunks
+    assert len(chunks) == 3, f"Expected 3 tumbling-window chunks for 25 msgs, got {len(chunks)}"
+    assert_valid_chunks(chunks, "WhatsApp (tumbling window)")
+
+    # First chunk covers the start of the export
+    assert "MARK0" in chunks[0].text, "First window should contain the first message"
+    # Last chunk covers the tail — this is the check that would catch a bug
+    # where windowing silently drops content past the first N messages.
+    assert "MARK24" in chunks[-1].text, "Last window should contain the final message (end of export)"
+    assert "MARK9" in chunks[0].text and "MARK10" not in chunks[0].text, \
+        "Window boundary should land exactly at chat_window (10), not slide by 1"
+
+    # Both speakers and per-message timestamps preserved inline
+    assert "Alice" in chunks[0].text and "Bob" in chunks[0].text
+    assert "10:00 AM" in chunks[0].text
+
+    # Citation references the message range, not a single message
+    assert "–" in chunks[0].citation_meta["location_label"]
+
+
 def test_chunk_audio():
     """Audio turn → 1 chunk per turn with timestamp range in citation."""
     doc = _make_doc("audio",
@@ -168,6 +202,7 @@ def test_all():
         test_chunk_docx,
         test_chunk_invoice,
         test_chunk_whatsapp,
+        test_chunk_whatsapp_window,
         test_chunk_audio,
         test_chunk_excel_tabular,
         test_chunk_citation_meta_inherited,
