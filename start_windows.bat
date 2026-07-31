@@ -29,24 +29,31 @@ if %errorlevel% neq 0 (
 if not exist ".venv" (
     echo [INFO] First time setup: Creating virtual environment...
     python -m venv .venv
-    
+
     echo [INFO] Installing dependencies (this may take a few minutes)...
     call .venv\Scripts\activate.bat
-    
+
     :: Install PyTorch CPU first for a smaller download footprint
     pip install torch --index-url https://download.pytorch.org/whl/cpu
-    
+
     :: Install the rest of the requirements
-    pip install -r requirements.txt
-    
+    pip install -r rag_pipeline\requirements.txt
+
     echo [INFO] Pulling necessary AI models from Ollama (this will take a while)...
     ollama pull llama3.2
     ollama pull llava
-    
+
     echo [INFO] Setup Complete!
 ) else (
     echo [INFO] Virtual environment found. Activating...
     call .venv\Scripts\activate.bat
+)
+
+:: 3b. Local config — copy the template on first run only, never overwrite
+:: an existing config.yaml (that's where local edits live).
+if not exist "rag_pipeline\config.yaml" (
+    echo [INFO] Creating rag_pipeline\config.yaml from the template...
+    copy /Y "rag_pipeline\config.example.yaml" "rag_pipeline\config.yaml" >nul
 )
 
 :: 4. Start the Application
