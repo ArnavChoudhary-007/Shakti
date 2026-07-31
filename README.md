@@ -80,7 +80,7 @@ Once the server is running (`http://localhost:8000` in your browser):
    switch to the **Chat** tab and ask: *"Which vendor did the team
    decide to go with, and what's the contract value?"* — the answer
    should cite both the chat export (the decision) and the PDF or CSV
-   (the $842,000 figure).
+   .
 3. The answer should stream in with numbered citations. Click one — it
    should open the original file at the right page/location, not just
    show a text snippet.
