@@ -1,0 +1,9 @@
+Date,Vendor,Category,Amount,Status
+2026-01-14,BrightPack Supplies,Packaging,70166.67,Paid
+2026-02-14,BrightPack Supplies,Packaging,70166.67,Paid
+2026-01-20,CartonWorks,Packaging,12500.0,Paid
+2026-01-22,Northwind Logistics,Freight,8340.15,Paid
+2026-02-02,Northwind Logistics,Freight,9110.4,Paid
+2026-02-10,EcoWrap Ltd,Packaging (sample order),1200.0,Paid
+2026-02-18,Acme Office Supplies,Office,340.25,Paid
+2026-03-01,BrightPack Supplies,Packaging,70166.67,Pending

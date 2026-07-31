@@ -16,12 +16,13 @@ Results are written to tests/benchmark_results/<label>.json so successive
 phases can be diffed against the same fixed sample set.
 
 The sample set lives in tests/benchmark_files/ and is committed to the repo
-so every run — and every person running it — uses identical inputs:
+so every run — and every person running it — uses identical inputs. All of
+it is synthetic filler content generated for scale, not real documents:
     bench_small.pdf        (2-page PDF)
     bench_medium.pdf       (33-page PDF)
-    bench_large.pdf        (49-page PDF)
-    bench_spreadsheet.csv  (~900KB real-world CSV)
-    bench_chat_whatsapp.txt (341-message WhatsApp export)
+    bench_large.pdf        (46-page PDF)
+    bench_spreadsheet.csv  (~900 synthetic rows)
+    bench_chat_whatsapp.txt (341-message synthetic WhatsApp export)
 
 No audio file is included — none was available in the repo at benchmark
 creation time. Drop a short .mp3/.wav into tests/benchmark_files/ named

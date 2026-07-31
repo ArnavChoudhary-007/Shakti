@@ -1,0 +1,11 @@
+3/2/2026, 9:12 AM - Bob: Hey team, quick update on the packaging vendor decision.
+3/2/2026, 9:13 AM - Bob: We're going with BrightPack Supplies for the warehouse automation project.
+3/2/2026, 9:14 AM - Priya: Great, I already sent over the evaluation memo with the numbers.
+3/2/2026, 9:16 AM - Carlos: What's the contract value again?
+3/2/2026, 9:17 AM - Priya: $842,000 annual, with a 10% discount if we sign before end of quarter.
+3/2/2026, 9:18 AM - Bob: Let's get the signature in this week then.
+3/2/2026, 9:20 AM - Carlos: Sounds good. I'll loop in finance for the PO.
+3/2/2026, 9:21 AM - Priya: Their account manager is Priya Nair on their side too, small world.
+3/2/2026, 9:22 AM - Bob: Ha, noted. I'll follow up directly with her this afternoon.
+3/2/2026, 10:05 AM - Carlos: Finance confirmed the PO is approved.
+3/2/2026, 10:06 AM - Bob: Perfect, closing this out. Thanks everyone.
