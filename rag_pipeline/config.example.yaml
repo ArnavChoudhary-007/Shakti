@@ -1,7 +1,14 @@
 # ============================================================
-# RAG Pipeline — Central Configuration
-# All runtime parameters live here. Application logic MUST
-# read from this file (or request parameters) — never hardcode.
+# RAG Pipeline — Central Configuration (EXAMPLE)
+#
+# Copy this file to config.yaml and adjust for your machine:
+#   cp config.example.yaml config.yaml       (macOS/Linux)
+#   copy config.example.yaml config.yaml     (Windows)
+#
+# config.yaml is gitignored — it's meant to hold your local paths
+# and tuning, not to be committed. All runtime parameters live here.
+# Application logic reads from this file (or request parameters) —
+# never hardcode.
 # ============================================================
 
 # ── Embedding ────────────────────────────────────────────────
@@ -78,7 +85,8 @@ audio:
   whisper_model_size: "base"         # tiny | base | small | medium | large-v3
   whisper_device: "cpu"
   diarization_enabled: false         # requires HuggingFace token
-  huggingface_token: ""              # set if diarization_enabled: true
+  huggingface_token: ""              # paste your own token here if diarization_enabled: true
+                                      # (get one at https://huggingface.co/settings/tokens)
 
 # ── Ingestion / Sync ─────────────────────────────────────────
 sync:
