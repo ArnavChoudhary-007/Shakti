@@ -794,47 +794,6 @@ async def clear_system_data(workspace_id: str = "default"):
         logger.error(f"Failed to clear system data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ── /ollama Endpoints ─────────────────────────────────────────
-class PullRequest(BaseModel):
-    model: str
-
-@app.get("/ollama/models", tags=["Ollama"])
-async def list_ollama_models():
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{_OLLAMA_HOST}/api/tags")
-            if resp.status_code == 200:
-                data = resp.json()
-                models = [{"name": m["name"], "size": m.get("size", 0)} for m in data.get("models", [])]
-                return {"models": models}
-    except Exception as e:
-        logger.error(f"Error listing ollama models: {e}")
-    return {"models": []}
-
-@app.post("/ollama/pull", tags=["Ollama"])
-async def pull_ollama_model(req: PullRequest):
-    async def _stream_pull():
-        try:
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream("POST", f"{_OLLAMA_HOST}/api/pull", json={"name": req.model}) as resp:
-                    async for chunk in resp.aiter_text():
-                        yield chunk
-        except Exception as e:
-            yield json.dumps({"status": f"Error: {e}"}) + "\\n"
-    return StreamingResponse(_stream_pull(), media_type="application/x-ndjson")
-
-@app.delete("/ollama/models/{model_name:path}", tags=["Ollama"])
-async def delete_ollama_model(model_name: str):
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.request("DELETE", f"{_OLLAMA_HOST}/api/delete", json={"name": model_name})
-            if resp.status_code == 200:
-                return {"status": "ok"}
-            else:
-                raise HTTPException(status_code=resp.status_code, detail=resp.text)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/kg/rebuild", tags=["Knowledge Graph"])
 async def rebuild_kg(workspace_id: str = Query("default", description="Workspace/session ID")):
     """Manually trigger the graph layout generation using the current data in SQLite."""
