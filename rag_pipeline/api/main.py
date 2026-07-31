@@ -85,8 +85,6 @@ _chunker: Optional[Chunker] = None
 _struct_db: Optional[StructuredDB] = None
 _router: Optional[QueryRouter] = None
 
-_kg_cluster_cache = {}  # In-memory cache for cluster labels
-
 
 def _get_embedder() -> Embedder:
     global _embedder
