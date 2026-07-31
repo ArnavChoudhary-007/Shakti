@@ -26,6 +26,21 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# KG entity type enum — must match the categories in generator.py's
+# extract_kg_relationships prompt. The LLM doesn't reliably stay within
+# this set, so upsert_kg_data enforces it at write time rather than
+# trusting the model's output verbatim.
+VALID_KG_TYPES = {
+    "Concept", "Material", "Process", "Organization",
+    "Person", "Location", "Technology", "Other",
+}
+
+
+def _coerce_kg_type(value: Optional[str]) -> str:
+    v = (value or "").strip()
+    return v if v in VALID_KG_TYPES else "Other"
+
+
 # ── Schema DDL ────────────────────────────────────────────────
 
 _DDL = """
@@ -432,7 +447,7 @@ class StructuredDB:
                 if not node_id:
                     continue
                 label = str(node.get("label", node_id)).strip()
-                category = str(node.get("category", "")).strip()
+                category = _coerce_kg_type(node.get("category"))
                 description = str(node.get("description", "")).strip()
                 
                 conn.execute("""
@@ -453,17 +468,15 @@ class StructuredDB:
                 if not source or not target:
                     continue
                     
-                source_type = str(edge.get("source_type", "")).strip() or None
-                target_type = str(edge.get("target_type", "")).strip() or None
-                
+                source_type = _coerce_kg_type(edge.get("source_type"))
+                target_type = _coerce_kg_type(edge.get("target_type"))
+
                 # Auto-create nodes if they were missing from the nodes array
                 conn.execute("INSERT OR IGNORE INTO kg_nodes (id, label, type) VALUES (?, ?, ?)", (source, source, source_type))
                 conn.execute("INSERT OR IGNORE INTO kg_nodes (id, label, type) VALUES (?, ?, ?)", (target, target, target_type))
-                
-                if source_type:
-                    conn.execute("UPDATE kg_nodes SET type = ? WHERE id = ? AND type IS NULL", (source_type, source))
-                if target_type:
-                    conn.execute("UPDATE kg_nodes SET type = ? WHERE id = ? AND type IS NULL", (target_type, target))
+
+                conn.execute("UPDATE kg_nodes SET type = ? WHERE id = ? AND type IS NULL", (source_type, source))
+                conn.execute("UPDATE kg_nodes SET type = ? WHERE id = ? AND type IS NULL", (target_type, target))
                 
                 # Upsert edge
                 conn.execute("""

@@ -5,6 +5,8 @@ A fully offline, local-first RAG (Retrieval-Augmented Generation) system with:
 - **Streaming LLM responses** via Ollama (swappable model per request)
 - **Multi-source ingestion** — PDFs, Excel, emails, chats, audio, invoices
 - **Multimodal** — text + vision models both via Ollama
+- **Dynamic Hardware Recommendations** — Automatically suggests models tailored to your system's available RAM and CPU
+- **Asynchronous Knowledge Graph Extraction** — Non-blocking, decoupled entity extraction for lightning-fast ingestion
 - **Zero cloud dependencies** — runs fully offline after initial setup
 
 ---

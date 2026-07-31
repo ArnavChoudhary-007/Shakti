@@ -1350,7 +1350,7 @@
             <div id="modelsGrid" class="mm-grid"></div>
             
             <div class="mm-view-all">
-              <button class="mm-view-all-btn">View All Models <span>⌄</span></button>
+
             </div>
           </div>
         </div>
@@ -1605,10 +1605,10 @@
           shadow: { enabled: true, color: 'rgba(0,0,0,0.5)', size: 10, x: 0, y: 0 },
           scaling: { label: { enabled: true, min: 10, max: 20 } }
         },
-        edges: { 
+        edges: {
           font: { size: 0 }, // quiet by default, no labels on canvas
-          width: 1.5,
-          color: { color: 'rgba(255,255,255,0.3)', hover: 'rgba(255,255,255,0.7)', highlight: 'rgba(255,255,255,0.9)' }, 
+          width: 2,
+          color: { color: 'rgba(255,255,255,0.6)', hover: 'rgba(255,255,255,0.7)', highlight: 'rgba(255,255,255,0.9)' },
           arrows: { to: { enabled: true, scaleFactor: 0.5 } },
           smooth: { type: 'continuous' }
         },
@@ -1623,6 +1623,7 @@
       };
       
       if (kgNetwork) kgNetwork.destroy();
+      console.log('[KG debug] edgesData.length =', edgesData.length, '| nodesData.length =', nodesData.length, '| sample edges:', edgesData.slice(0, 3), '| sample nodes:', nodesData.slice(0, 3));
       kgNetwork = new vis.Network(container, graphData, options);
 
       // Part 2a: Default view = communities only
@@ -2695,7 +2696,7 @@
             <div class="mm-card-title">${model.name}</div>
             <div class="mm-card-size">${sizeLabel}</div>
           </div>
-          <div class="mm-card-bookmark">🔖</div>
+
         </div>
         <div class="mm-card-desc">${model.description || ''}</div>
         <div class="mm-card-tags">
