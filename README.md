@@ -69,15 +69,18 @@ uvicorn rag_pipeline.api.main:app --reload --port 8000
 
 Once the server is running (`http://localhost:8000` in your browser):
 
-1. Go to the **Ingest** tab and upload the files in `sample_data/` — a
-   short PDF, a CSV, and a synthetic WhatsApp-style chat export. None of it
-   is real; it exists so you can see the whole pipeline work without
-   needing your own documents.
-2. Once ingestion finishes (watch the per-file progress in the UI), switch
-   to the **Chat** tab and ask a question the sample data can actually
-   answer — e.g. *"What did the team decide about the vendor contract?"*
-   or *"What's in the invoice?"* (adjust to whatever ends up in
-   `sample_data/` — see the folder's own contents for what to ask).
+1. Go to the **Ingest** tab and upload the three files in `sample_data/`
+   — a 2-page vendor evaluation memo (PDF), an expense ledger (CSV), and
+   a WhatsApp-style team chat export (TXT). All three describe the same
+   fictional scenario (a packaging vendor decision at a made-up
+   company) so a single query can pull from more than one source. None
+   of it is real; it exists so you can see the whole pipeline work
+   without needing your own documents.
+2. Once ingestion finishes (watch the per-file progress in the UI),
+   switch to the **Chat** tab and ask: *"Which vendor did the team
+   decide to go with, and what's the contract value?"* — the answer
+   should cite both the chat export (the decision) and the PDF or CSV
+   (the $842,000 figure).
 3. The answer should stream in with numbered citations. Click one — it
    should open the original file at the right page/location, not just
    show a text snippet.
