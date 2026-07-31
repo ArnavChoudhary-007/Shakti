@@ -39,8 +39,8 @@ python -m venv .venv
 .venv\Scripts\activate    # Windows
 # source .venv/bin/activate  # macOS/Linux
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# 2. Install dependencies (pinned to exact versions — see rag_pipeline/requirements.txt)
+pip install -r rag_pipeline/requirements.txt
 
 # 3. (Optional) Install PyTorch CPU-only for a smaller download
 pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -50,30 +50,98 @@ ollama pull llama3.2
 ollama pull llava
 
 # 5. Configure
-# Edit config.yaml — set Ollama host, model names, chunk sizes, etc.
+cp rag_pipeline/config.example.yaml rag_pipeline/config.yaml
+# Edit rag_pipeline/config.yaml if you need to change the Ollama host,
+# model names, chunk sizes, etc. — config.yaml is gitignored, so your
+# local edits never get committed.
 
-# 6. Run the API server
+# 6. Run the API server — always from the repo root (see note below)
 uvicorn rag_pipeline.api.main:app --reload --port 8000
 ```
+
+> **Always launch from the repo root**, not from inside `rag_pipeline/`.
+> `chroma_persist_dir` and `sqlite_path` in `config.yaml` are relative
+> paths, resolved against whatever directory the process starts in — launching
+> from the wrong directory silently creates a second, empty database instead
+> of using the real one. `start_windows.bat` already does this correctly.
+
+## Running the Demo
+
+Once the server is running (`http://localhost:8000` in your browser):
+
+1. Go to the **Ingest** tab and upload the files in `sample_data/` — a
+   short PDF, a CSV, and a synthetic WhatsApp-style chat export. None of it
+   is real; it exists so you can see the whole pipeline work without
+   needing your own documents.
+2. Once ingestion finishes (watch the per-file progress in the UI), switch
+   to the **Chat** tab and ask a question the sample data can actually
+   answer — e.g. *"What did the team decide about the vendor contract?"*
+   or *"What's in the invoice?"* (adjust to whatever ends up in
+   `sample_data/` — see the folder's own contents for what to ask).
+3. The answer should stream in with numbered citations. Click one — it
+   should open the original file at the right page/location, not just
+   show a text snippet.
+4. Optional: go to the **Knowledge Graph** tab and click **Rebuild
+   Graph** to see entity extraction run (this makes real Ollama calls
+   and can take a minute or two even on this small sample set).
+
+## Out of Scope
+
+This is a local, single-user tool. Explicitly **not** handled:
+
+- **Multiple concurrent users / multi-tenancy.** There's no
+  authentication, no per-user data isolation, and `workspace_id` is a
+  logical label, not a security boundary. See `ARCHITECTURE.md` for the
+  full list of single-user assumptions baked into the code.
+- **Any LLM provider other than Ollama.** No OpenAI/Anthropic/Gemini/etc.
+  integration exists or is planned; the only non-local option is an
+  Ollama `:cloud` model.
+- **A distributed task queue.** Background ingestion uses FastAPI's
+  built-in `BackgroundTasks`, not Celery/RQ/etc. — by design, not as a
+  stopgap.
+- **GPU as a requirement.** The tested default path is CPU-only
+  (targeting modest hardware, e.g. 16GB RAM, no dedicated GPU); a GPU
+  will be used opportunistically if `config.yaml`'s `device` is set to
+  `cuda`, but nothing is validated against one.
+- **Production-grade auth, rate limiting, or hardening.** CORS is wide
+  open and every endpoint is unauthenticated — appropriate for a tool
+  that only ever talks to itself on `localhost`, not for anything
+  exposed to a network.
+- **PST email support out of the box.** The mbox/eml paths work with the
+  pinned dependencies; PST requires `libpff-python`, which isn't
+  installed by default (see the comment in `requirements.txt`) since it
+  can require build tools on Windows.
+- **Non-English content quality.** Nothing in the pipeline assumes a
+  language, but chunk sizes, the entity-type prompt, and citation
+  formatting were only tuned and tested against English documents.
 
 ## Project Structure
 
 ```
-rag_pipeline/
-├── connectors/         # One module per source type (Phase 1)
-├── core/
-│   ├── normalizer.py   # Canonical document schema (Phase 2)
-│   ├── chunker.py      # Source-aware chunking (Phase 3)
-│   ├── embedder.py     # sentence-transformers encoding (Phase 5)
-│   ├── vectorstore.py  # Chroma/FAISS interface (Phase 6)
-│   ├── retriever.py    # Hybrid retrieval (Phase 7)
-│   └── generator.py    # Citation-grounded streaming generator (Phase 7)
-├── structured_db/      # SQLite for tabular/invoice data (Phase 4)
-├── api/                # FastAPI endpoints (Phase 8)
-├── frontend/           # Plain HTML/CSS/JS UI (Phase 9)
-├── chroma_db/          # Chroma persistent storage (auto-created)
-├── config.yaml         # All runtime configuration
-└── requirements.txt
+p1/
+├── sample_data/                    # Synthetic files for the demo — see "Running the Demo"
+├── ARCHITECTURE.md                 # Pipeline internals, API reference, single-user assumptions
+├── start_windows.bat               # 1-click launcher (Windows)
+├── chroma_db/                      # Chroma persistent storage (auto-created, gitignored)
+├── structured_db/                  # SQLite data files (auto-created, gitignored)
+└── rag_pipeline/
+    ├── connectors/                 # One module per source type
+    ├── core/
+    │   ├── normalizer.py           # Canonical document schema
+    │   ├── chunker.py              # Source-aware chunking
+    │   ├── embedder.py             # sentence-transformers encoding
+    │   ├── vectorstore.py          # Chroma/FAISS interface
+    │   ├── retriever.py            # Hybrid retrieval
+    │   ├── generator.py            # Citation-grounded streaming generator
+    │   ├── kg_builder.py           # Knowledge graph clustering/labeling
+    │   └── model_catalog.py        # Live hardware + Ollama model detection
+    ├── structured_db/              # SQLite access layer (db.py, router.py)
+    ├── api/                        # FastAPI app (main.py)
+    ├── frontend/                   # Plain HTML/CSS/JS UI, no build step
+    ├── tests/                      # pytest suite + synthetic fixtures
+    ├── config.example.yaml         # Template — copy to config.yaml
+    ├── config.yaml                 # Your local config (gitignored, not committed)
+    └── requirements.txt            # Pinned to exact versions
 ```
 
 ## Configuration
@@ -115,10 +183,8 @@ The frontend renders these as hoverable pills showing full source context.
 | Invoices | `.pdf`, images | Structured field extraction |
 | Audio calls | `.mp3`, `.wav`, `.m4a` | Transcription + optional diarization |
 
-## Build Status
+## Architecture
 
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 0 | ✅ Done | Project scaffold |
-| 1 | ⏳ Next | Ingestion connectors |
-| 2–11 | 🔲 Pending | See plan |
+See `ARCHITECTURE.md` for pipeline internals, the full API endpoint
+reference, and — importantly — exactly where this codebase assumes a
+single user on a single machine.
