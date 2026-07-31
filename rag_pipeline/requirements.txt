@@ -2,33 +2,33 @@
 # RAG Pipeline — Requirements
 # Install: pip install -r requirements.txt
 # Python 3.11+ required
+# Pinned to exact versions verified working together on 2026-07-31.
 # ============================================================
 
 # ── Core / Config ────────────────────────────────────────────
-pyyaml>=6.0.1
-pydantic>=2.5.0
-python-dotenv>=1.0.0
-psutil>=5.9.0
-requests>=2.31.0
+pyyaml==6.0.3
+pydantic==2.13.4
+python-dotenv==1.2.1
+psutil==7.1.2
+requests==2.32.5
 
-# ── Phase 1: Connectors ──────────────────────────────────────
+# ── Connectors ────────────────────────────────────────────────
 # PDF (digital + OCR fallback)
-pymupdf>=1.24.0           # fitz — fast PDF parsing
-pymupdf4llm>=0.0.17       # markdown extraction helper
-pdf2image>=1.17.0         # scanned page → PIL image
-pytesseract>=0.3.10       # OCR (requires Tesseract binary)
-Pillow>=10.3.0
+pymupdf==1.26.5           # fitz — fast PDF parsing
+pymupdf4llm==0.0.27       # markdown extraction helper
+pytesseract==0.3.13       # OCR (requires the Tesseract binary separately)
+pillow==11.3.0
 
 # Word documents (.docx, .doc)
-python-docx>=1.1.0
+python-docx==1.2.0
 
 # PowerPoint presentations (.pptx, .ppt)
-python-pptx>=0.6.23
+python-pptx==1.0.2
 
 # Excel / CSV
-pandas>=2.2.0
-openpyxl>=3.1.2
-xlrd>=2.0.1               # legacy .xls support
+pandas==2.3.3
+openpyxl==3.1.5
+xlrd==2.0.2                # legacy .xls support
 
 # Email — mbox (stdlib) + PST
 # libpff-python — install separately if PST support needed:
@@ -37,52 +37,52 @@ xlrd>=2.0.1               # legacy .xls support
 # Chat exports (WhatsApp, Telegram, Slack, Teams) — stdlib json + regex
 
 # Audio transcription + diarization
-faster-whisper>=1.0.1
+faster-whisper==1.2.1
 # pyannote-audio>=3.1.1   # optional; requires HuggingFace token
 #   install separately: pip install pyannote-audio
 
-# ── Phase 2: Normalizer ──────────────────────────────────────
-# (pydantic already listed above)
+# ── Chunking ─────────────────────────────────────────────────
+langchain-text-splitters==0.3.11
 
-# ── Phase 3: Chunker ─────────────────────────────────────────
-langchain-text-splitters>=0.2.4
-
-# ── Phase 4: Structured DB ───────────────────────────────────
+# ── Structured DB ────────────────────────────────────────────
 # sqlite3 — stdlib
 # pandas already listed above
 
-# ── Phase 5: Embedder ────────────────────────────────────────
-sentence-transformers>=3.0.0
-torch>=2.2.0              # CPU build; use torch+cu121 for CUDA
+# ── Embedder ─────────────────────────────────────────────────
+sentence-transformers==5.1.2
+torch==2.8.0               # CPU build; use torch+cu121 for CUDA
 # For CPU-only (smaller install):
 # pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-# ── Phase 6: Vector Store ────────────────────────────────────
-chromadb>=0.5.0
-faiss-cpu>=1.8.0          # swap to faiss-gpu if CUDA available
+# ── Vector Store ─────────────────────────────────────────────
+chromadb==1.5.9
+faiss-cpu==1.13.0          # swap to faiss-gpu if CUDA available
 
-# ── Phase 7: Retrieval + Generation ─────────────────────────
-rank-bm25>=0.2.2          # BM25 hybrid retrieval
-httpx>=0.27.0             # async Ollama streaming
+# ── Retrieval + Generation ───────────────────────────────────
+rank-bm25==0.2.2           # BM25 hybrid retrieval
+httpx==0.28.1              # async Ollama streaming + FastAPI test client
 # tiktoken — optional, for token counting
 # tiktoken>=0.7.0
 
-# ── Phase 8: API Layer ───────────────────────────────────────
-fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
-python-multipart>=0.0.9   # for file upload endpoints
-sse-starlette>=2.1.0      # Server-Sent Events for streaming
+# ── Knowledge Graph ──────────────────────────────────────────
+networkx==3.2.1
+python-louvain==0.16       # imported as `community`
 
-# ── Phase 10: Incremental Sync ───────────────────────────────
-apscheduler>=3.10.4
+# ── API Layer ────────────────────────────────────────────────
+fastapi==0.128.8
+uvicorn[standard]==0.39.0
+python-multipart==0.0.20   # for file upload endpoints
+sse-starlette==3.3.0       # Server-Sent Events for streaming
 
-# ── Phase 11: Tests ──────────────────────────────────────────
-pytest>=8.2.0
-pytest-asyncio>=0.23.0
-httpx>=0.27.0             # async test client for FastAPI
+# ── Incremental Sync ─────────────────────────────────────────
+apscheduler==3.11.3
+
+# ── Tests ────────────────────────────────────────────────────
+pytest==8.4.2
+pytest-asyncio==1.2.0
 
 # ── Utilities ────────────────────────────────────────────────
-rich>=13.7.0              # pretty console output
-tqdm>=4.66.0              # progress bars
-python-dateutil>=2.9.0
-chardet>=5.2.0            # encoding detection for text files
+rich==15.0.0                # pretty console output
+tqdm==4.68.3                 # progress bars
+python-dateutil==2.9.0.post0
+chardet==5.2.0               # encoding detection for text files

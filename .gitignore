@@ -11,3 +11,8 @@ diff.txt
 rag_pipeline/uploads/
 .agents/
 dummy_ingest/
+cache/
+.env
+.env.*
+credentials/
+/rag_pipeline/config.yaml
