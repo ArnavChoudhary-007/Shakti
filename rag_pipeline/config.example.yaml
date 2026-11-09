@@ -11,6 +11,16 @@
 # never hardcode.
 # ============================================================
 
+# ── Companion server ─────────────────────────────────────────
+# Relative paths below resolve against the data directory
+# (SHAKTI_DATA_DIR, or the repo root in a dev checkout).
+server:
+  port: 8000                         # also settable via SHAKTI_PORT
+  # Public website origins allowed to call this companion once paired.
+  # Add more with the SHAKTI_WEB_ORIGINS env var (comma-separated).
+  web_origins:
+    - "https://arnavchoudhary-007.github.io"
+
 # ── Embedding ────────────────────────────────────────────────
 embedding:
   model_name: "all-MiniLM-L6-v2"   # sentence-transformers model

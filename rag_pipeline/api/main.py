@@ -15,38 +15,40 @@ Ollama model is swappable per-request via ?model=llama3.2.
 from __future__ import annotations
 
 import asyncio
-import time
-import uuid
-import hashlib
-import networkx as nx
-import community as community_louvain
 import json
 import logging
-import os
-import sys
-import psutil
+import time
+import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
-from dotenv import load_dotenv
-
-from rag_pipeline.core.kg_builder import build_graph_layout
-
-load_dotenv()
 
 import httpx
 import requests
-import yaml
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Form, BackgroundTasks
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# ── Path setup ────────────────────────────────────────────────
-_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(_ROOT.parent))
+load_dotenv()
 
-from rag_pipeline import get_config
+_ROOT = Path(__file__).parent.parent
+
+from rag_pipeline import __version__, get_config, get_data_dir
+from rag_pipeline import settings as user_settings
+from rag_pipeline.api.security import (
+    TOKEN_HEADER,
+    CompanionGuard,
+    cors_origins,
+    is_local_request,
+    local_origins,
+    server_port,
+    web_origins,
+)
+from rag_pipeline.core import ollama_setup
+from rag_pipeline.core.kg_builder import build_graph_layout
 from rag_pipeline.core.embedder import Embedder
 from rag_pipeline.core.model_catalog import (
     get_system_specs,
@@ -149,22 +151,54 @@ def _get_router() -> QueryRouter:
 
 # ── FastAPI app ───────────────────────────────────────────────
 
+_UPLOAD_DIR = get_data_dir() / "uploads"
+_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+_LOCAL_ORIGINS = local_origins(server_port(_CONFIG))
+_WEB_ORIGINS = web_origins(_CONFIG)
+
+# Shared HTTP client for Ollama calls (connection pooling).
+_http: Optional[httpx.AsyncClient] = None
+
+
+def _client() -> httpx.AsyncClient:
+    global _http
+    if _http is None:
+        _http = httpx.AsyncClient(timeout=10.0)
+    return _http
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    user_settings.get_pairing_token()   # create on first run
+    yield
+    if _http is not None:
+        await _http.aclose()
+
+
 app = FastAPI(
-    title="RAG Pipeline API",
+    title="Shakti Companion API",
     description="Local-first, citation-grounded RAG over your documents.",
-    version="0.1.0",
+    version=__version__,
+    lifespan=_lifespan,
 )
 
+# Order matters: the last middleware added is the outermost, so CORS answers
+# preflight requests before the guard (which would reject them for lacking a
+# token) ever sees them.
+app.add_middleware(
+    CompanionGuard,
+    local=_LOCAL_ORIGINS,
+    web=_WEB_ORIGINS,
+    token_provider=user_settings.get_pairing_token,
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cors_origins(_LOCAL_ORIGINS, _WEB_ORIGINS),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", TOKEN_HEADER],
 )
-
-os.makedirs(_ROOT / "uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(_ROOT / "uploads")), name="uploads")
 
 
 # ── Request / response models ─────────────────────────────────
@@ -255,6 +289,80 @@ async def health():
         vector_store_count=vs_count,
         ollama_models=available_models,
     )
+
+
+# ── Companion identity, pairing, settings ─────────────────────
+
+@app.get("/version", tags=["System"])
+async def version():
+    """Lets the website detect an installed companion. Callable before pairing."""
+    return {"name": "shakti-companion", "version": __version__, "api": 1}
+
+
+@app.get("/pair/token", tags=["System"])
+async def pair_token(request: Request):
+    """
+    The pairing token for the public website. Only the companion's own UI
+    (or a local non-browser client) may read it.
+    """
+    if not is_local_request(request, _LOCAL_ORIGINS):
+        raise HTTPException(status_code=403, detail="Only available from the companion's own page.")
+    return {"token": user_settings.get_pairing_token(), "web_origins": sorted(_WEB_ORIGINS)}
+
+
+class SettingsUpdate(BaseModel):
+    chat_model: Optional[str] = None
+
+
+@app.get("/settings", tags=["System"])
+async def get_settings():
+    return {**user_settings.load_settings(), "effective_chat_model": user_settings.get_chat_model(_CONFIG)}
+
+
+@app.put("/settings", tags=["System"])
+async def put_settings(update: SettingsUpdate):
+    saved = user_settings.update_settings(update.model_dump(exclude_unset=True))
+    return {**saved, "effective_chat_model": user_settings.get_chat_model(_CONFIG)}
+
+
+# ── /setup — help the user install and start Ollama ───────────
+
+@app.get("/setup/status", tags=["Setup"])
+async def setup_status():
+    """Ollama installed/running state plus the chosen chat model."""
+    status = await ollama_setup.get_status(_OLLAMA_HOST, _client())
+    models: List[str] = []
+    if status["running"]:
+        try:
+            resp = await _client().get(f"{_OLLAMA_HOST}/api/tags", timeout=5.0)
+            models = [m["name"] for m in resp.json().get("models", [])]
+        except (httpx.HTTPError, ValueError):
+            pass
+    chat_model = user_settings.get_chat_model(_CONFIG)
+    status.update({
+        "models": models,
+        "chat_model": chat_model,
+        "chat_model_installed": chat_model in models,
+    })
+    return status
+
+
+@app.post("/setup/ollama/start", tags=["Setup"])
+async def setup_start_ollama():
+    try:
+        await asyncio.to_thread(ollama_setup.start_ollama)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"status": "starting"}
+
+
+@app.post("/setup/ollama/install", tags=["Setup"])
+async def setup_install_ollama():
+    """Download the signed official installer and launch its setup wizard."""
+    try:
+        return ollama_setup.begin_install()
+    except RuntimeError as e:
+        raise HTTPException(status_code=501, detail=str(e))
 
 
 # ── /models ───────────────────────────────────────────────────
@@ -525,7 +633,7 @@ async def ingest(
     from fastapi.responses import JSONResponse
 
     file_name = Path(file.filename).name if file.filename else "unknown.bin"
-    upload_path = _ROOT / "uploads" / file_name
+    upload_path = _UPLOAD_DIR / file_name
     upload_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(upload_path, "wb") as f:
@@ -548,20 +656,6 @@ async def ingest(
     )
 
     return JSONResponse(status_code=202, content=_ingest_jobs[job_id])
-
-
-@app.post("/ingest_path", response_model=IngestResponse, tags=["Ingestion"])
-async def ingest_path(
-    path: str = Query(..., description="Absolute path to file on disk"),
-    workspace_id: str = Query("default", description="Workspace/session ID")
-):
-    """
-    Ingest a file by path (for server-side use, e.g. CLI or sync daemon).
-    Runs synchronously so callers can await the result directly.
-    """
-    if not Path(path).exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {path}")
-    return await _ingest_file_path(path, original_name=Path(path).name, workspace_id=workspace_id)
 
 
 @app.get("/ingest/status/{job_id}", tags=["Ingestion"])
@@ -598,7 +692,7 @@ async def _run_ingest_job(
 
 
 async def _ingest_file_path(file_path: str, original_name: str, workspace_id: str = "default") -> IngestResponse:
-    """Core ingestion logic, shared by /ingest and /ingest_path."""
+    """Core ingestion logic, shared by /ingest and the sync daemon."""
     normalizer = _get_normalizer()
     chunker = _get_chunker()
     embedder = _get_embedder()
@@ -752,7 +846,7 @@ async def build_knowledge_graph(
             workspace_id=workspace_id,
             db=db,
             host=_OLLAMA_HOST,
-            model=get_config().get("generator", {}).get("model", "llama3.2:1b"),
+            model=user_settings.get_chat_model(_CONFIG),
             min_edge_weight=min_edge_weight
         )
         return {"status": "success", "message": "Graph layout built successfully"}
@@ -797,7 +891,7 @@ async def rebuild_kg(workspace_id: str = Query("default", description="Workspace
     """Manually trigger the graph layout generation using the current data in SQLite."""
     try:
         db = _get_struct_db()
-        kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
+        kg_model = user_settings.get_chat_model(_CONFIG)
         await build_graph_layout(workspace_id=workspace_id, db=db, host=_OLLAMA_HOST, model=kg_model)
         return {"status": "success", "message": "Graph layout rebuilt successfully"}
     except Exception as e:
@@ -805,6 +899,8 @@ async def rebuild_kg(workspace_id: str = Query("default", description="Workspace
         raise HTTPException(status_code=500, detail=str(e))
 
 # ── Frontend Mount ─────────────────────────────────────────────
-os.makedirs(_ROOT / "uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(_ROOT / "uploads")), name="uploads")
-app.mount("/", StaticFiles(directory=str(_ROOT / "frontend"), html=True), name="frontend")
+# The built React app (web/ → rag_pipeline/webui) if present, else the legacy
+# single-file UI.
+_WEBUI_DIR = _ROOT / "webui"
+_UI_DIR = _WEBUI_DIR if (_WEBUI_DIR / "index.html").is_file() else _ROOT / "frontend"
+app.mount("/", StaticFiles(directory=str(_UI_DIR), html=True), name="frontend")

@@ -258,12 +258,22 @@ class Generator:
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         cfg = config or {}
+        self._config = cfg
         ollama_cfg = cfg.get("ollama", {})
         self.ollama_host = ollama_cfg.get("host", "http://localhost:11434")
-        self.default_text_model = ollama_cfg.get("default_text_model", "llama3.2")
-        self.grader_model = ollama_cfg.get("grader_model", self.default_text_model)
+        self._grader_model = ollama_cfg.get("grader_model")
         self.default_vision_model = ollama_cfg.get("default_vision_model", "llava")
         self.timeout = float(ollama_cfg.get("request_timeout", 120))
+
+    @property
+    def default_text_model(self) -> str:
+        """The user's chosen model (settings.json), else the config default."""
+        from rag_pipeline.settings import get_chat_model
+        return get_chat_model(self._config)
+
+    @property
+    def grader_model(self) -> str:
+        return self._grader_model or self.default_text_model
 
     def _resolve_model(self, model: Optional[str]) -> str:
         return model or self.default_text_model
