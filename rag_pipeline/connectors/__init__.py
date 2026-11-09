@@ -42,6 +42,9 @@ def _get_connector(source_type: str) -> Any:
     elif source_type == "json":
         from . import json_connector
         return json_connector
+    elif source_type == "text":
+        from . import text_connector
+        return text_connector
     raise ValueError(f"Unknown source type: {source_type!r}")
 
 
@@ -49,9 +52,7 @@ def _get_connector(source_type: str) -> Any:
 EXTENSION_MAP: Dict[str, str] = {
     ".pdf": "pdf",
     ".docx": "docx",
-    ".doc": "docx",
     ".pptx": "pptx",
-    ".ppt": "pptx",
     ".xlsx": "excel",
     ".xls": "excel",
     ".csv": "csv",
@@ -73,8 +74,28 @@ EXTENSION_MAP: Dict[str, str] = {
     ".tif": "invoice",
     ".bmp": "invoice",
     ".json": "json",
-    ".txt": "whatsapp",
+    ".txt": "text",      # sniffed: WhatsApp exports are .txt too
+    ".md": "text",
+    ".markdown": "text",
 }
+
+# Old binary Office formats need conversion; python-docx/pptx can't read them.
+_UNSUPPORTED_HINTS = {
+    ".doc": "Legacy .doc files aren't supported — save it as .docx and upload again.",
+    ".ppt": "Legacy .ppt files aren't supported — save it as .pptx and upload again.",
+}
+
+
+def _looks_like_whatsapp(file_path: str) -> bool:
+    """True if most of the first non-empty lines are WhatsApp message lines."""
+    from .text_connector import read_text
+    from .whatsapp_connector import _parse_message_line
+
+    lines = [l for l in read_text(file_path).splitlines()[:40] if l.strip()][:15]
+    if not lines:
+        return False
+    hits = sum(1 for l in lines if _parse_message_line(l))
+    return hits >= max(2, len(lines) // 2)
 
 
 def _sniff_json_source_type(file_path: str) -> str:
@@ -120,6 +141,8 @@ def extract_file(
     ext = p.suffix.lower()
 
     if source_type is None:
+        if ext in _UNSUPPORTED_HINTS:
+            raise ValueError(_UNSUPPORTED_HINTS[ext])
         source_type = EXTENSION_MAP.get(ext)
         if source_type is None:
             raise ValueError(
@@ -128,6 +151,8 @@ def extract_file(
             )
         if source_type == "json":
             source_type = _sniff_json_source_type(file_path)
+        elif source_type == "text" and ext == ".txt" and _looks_like_whatsapp(file_path):
+            source_type = "whatsapp"
 
     connector = _get_connector(source_type)
     yield from connector.extract(file_path, **kwargs)

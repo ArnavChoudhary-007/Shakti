@@ -42,6 +42,10 @@ ollama:
   grader_model: "llama3.2:3b"           # fast model for algorithmic grader
   default_vision_model: "llava"      # multimodal / vision model
   request_timeout: 300               # seconds
+  keep_alive: "30m"                  # keep the model loaded between questions
+  num_ctx: 8192                      # context window; Ollama silently truncates beyond it
+  # The chat model chosen in the website (settings.json) overrides
+  # default_text_model.
 
 # ── System / model recommendations ────────────────────────────
 system:
@@ -52,10 +56,11 @@ retrieval:
   final_k: 6
   candidate_k: 20
   reranker_model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  use_llm_grader: false              # extra LLM relevance check before answering (slower)
 
 # ── Chunking ─────────────────────────────────────────────────
 chunking:
-  default_chunk_size: 800            # tokens (approx characters / 4)
+  default_chunk_size: 800            # characters
   default_chunk_overlap: 150
   # Per-source overrides
   pdf:

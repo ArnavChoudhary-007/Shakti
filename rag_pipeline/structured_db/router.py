@@ -3,33 +3,50 @@ structured_db/router.py
 Query router: decides whether a natural-language question should be
 answered via SQL (structured DB) or vector search (semantic retrieval).
 
-Decision logic:
-  1. Keyword matching against SQL signal words from config.yaml
-  2. Named entity detection for vendor names / invoice numbers
-  3. Returns a QueryRoute with the decision and extracted parameters.
+Decision logic (SQL only when the question is clearly about the tables):
+  1. An explicit invoice number always goes to SQL.
+  2. Narrative signals ("summarize", "explain", "who said", ...) go to
+     vector search.
+  3. Otherwise SQL needs BOTH a table noun (invoice, ledger, expense, ...)
+     AND an aggregate/amount signal (total, how much, more than $X, ...).
+     A single loose word like "vendor" or "payment" is not enough —
+     "Which vendor did the team pick?" is a question about documents.
+  4. If SQL returns no rows, the API falls back to vector search.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, Optional, Pattern
 
-# Default SQL keywords (overridden by config.yaml structured_db.sql_router_keywords)
-_DEFAULT_SQL_KEYWORDS = {
-    "total", "sum", "how much", "amount", "balance",
-    "invoice number", "vendor", "payment", "date range",
-    "between", "paid", "outstanding", "overdue",
-    "how many invoices", "list all", "find all invoices",
-    "average", "minimum", "maximum", "count",
+# Aggregate / amount signals. Extended by config structured_db.sql_router_keywords.
+_DEFAULT_AGGREGATE_KEYWORDS = {
+    "total", "sum", "how much", "how many", "count", "average", "minimum",
+    "maximum", "amount", "balance", "outstanding", "overdue", "paid",
+    "list all", "find all", "spent", "cost",
 }
 
-# Patterns for structured extraction from query text
+# Nouns naming the structured tables (invoices, ledger rows).
+_INVOICE_NOUNS = {"invoice", "invoices", "bill", "bills", "billed"}
+_LEDGER_NOUNS = {
+    "ledger", "expense", "expenses", "spend", "spending", "transaction",
+    "transactions", "payment", "payments", "sheet", "spreadsheet", "row", "rows",
+}
+
+_SEMANTIC_SIGNALS = (
+    "summarise", "summarize", "summary", "explain", "describe", "what did",
+    "who said", "why did", "why was", "how does", "what is the purpose",
+    "strategy", "overview", "background", "context", "opinion", "decide", "decision",
+)
+
+# Capture group is case-sensitive: vendor names start with a capital letter,
+# so "vendor did the team pick" doesn't become vendor="did the team pick".
 _VENDOR_PATTERN = re.compile(
-    r"(?:from|vendor|supplier|by|paid to|payment to)\s+([A-Z][A-Za-z0-9\s&\.]{2,40}?)(?:\s+(?:in|for|on|between|during|$)|\?|$)",
-    re.IGNORECASE,
+    r"(?i:\b(?:from|vendor|supplier|paid to|payment to|billed by))\s+"
+    r"([A-Z][A-Za-z0-9&.\-]*(?:\s+[A-Z][A-Za-z0-9&.\-]*){0,4})"
 )
 _INVOICE_NO_PATTERN = re.compile(
-    r"\b(INV[-\s]?[\d]{3,}[-\d]*|[A-Z]{2,}-\d{4}-[\d-]+)\b",
+    r"\b(INV[-\s]?\d{3,}[-\d]*|[A-Z]{2,}-\d{4}-[\d-]+)\b",
     re.IGNORECASE,
 )
 _DATE_RANGE_PATTERN = re.compile(
@@ -37,15 +54,13 @@ _DATE_RANGE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _AMOUNT_PATTERN = re.compile(
-    r"(?:more than|greater than|less than|over|under|above|below)\s*\$?([\d,]+(?:\.\d+)?)",
+    r"(more than|greater than|over|above|less than|under|below)\s*[$₹€£]?\s*([\d,]+(?:\.\d+)?)",
     re.IGNORECASE,
 )
 
-# SQL keywords with word-boundary matching (avoids 'sum' matching 'summarise')
-_SQL_KEYWORD_PATTERNS = {
-    kw: re.compile(r"\b" + re.escape(kw) + r"\b", re.IGNORECASE)
-    for kw in _DEFAULT_SQL_KEYWORDS
-}
+
+def _word_patterns(words: Iterable[str]) -> Dict[str, Pattern[str]]:
+    return {w: re.compile(r"\b" + re.escape(w) + r"\b", re.IGNORECASE) for w in words}
 
 
 @dataclass
@@ -65,113 +80,63 @@ class QueryRouter:
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         cfg = config or {}
-        kw_list = cfg.get("structured_db", {}).get("sql_router_keywords", [])
-        self.sql_keywords = set(kw_list) | _DEFAULT_SQL_KEYWORDS
+        extra = cfg.get("structured_db", {}).get("sql_router_keywords", []) or []
+        self.aggregate_patterns = _word_patterns(_DEFAULT_AGGREGATE_KEYWORDS | {k.lower() for k in extra})
+        self.invoice_patterns = _word_patterns(_INVOICE_NOUNS)
+        self.ledger_patterns = _word_patterns(_LEDGER_NOUNS)
 
     def route(self, query: str) -> QueryRoute:
         q_lower = query.lower().strip()
 
-        # ── Step 0: semantic bypass signals ─────────────────
-        # These words strongly indicate a narrative/semantic question
-        _SEMANTIC_SIGNALS = {
-            "summarise", "summarize", "summary", "explain", "describe",
-            "what did", "who said", "why did", "how does", "what is the purpose",
-            "strategy", "overview", "background", "context",
-        }
-        has_semantic_signal = any(sig in q_lower for sig in _SEMANTIC_SIGNALS)
-
-        # ── Step 1: keyword signal (word-boundary matching) ──
-        matched_keywords = [
-            kw for kw, pat in _SQL_KEYWORD_PATTERNS.items()
-            if pat.search(q_lower)
-        ]
-        keyword_score = min(len(matched_keywords) / 2.0, 1.0)
-
-        # If only weak SQL signals + strong semantic signal -> route to vector
-        if has_semantic_signal and keyword_score < 0.5:
+        inv_m = _INVOICE_NO_PATTERN.search(query)
+        if inv_m:
             return QueryRoute(
-                use_sql=False,
-                confidence=0.85,
-                reason="Semantic signal overrides weak SQL keyword match",
-                query_type="semantic",
+                use_sql=True,
+                confidence=0.95,
+                reason=f"Invoice number detected: {inv_m.group(1)}",
+                sql_params={"invoice_number": inv_m.group(1)},
+                query_type="invoice",
             )
 
-        if not matched_keywords:
-            # Still check for an explicit invoice number before giving up
-            inv_m = _INVOICE_NO_PATTERN.search(query)
-            if inv_m:
-                return QueryRoute(
-                    use_sql=True,
-                    confidence=0.95,
-                    reason="Invoice number detected: %s" % inv_m.group(1),
-                    sql_params={"invoice_number": inv_m.group(1)},
-                    query_type="invoice",
-                )
-            return QueryRoute(
-                use_sql=False,
-                confidence=0.9,
-                reason="No SQL-signal keywords found -> semantic search",
-                query_type="semantic",
-            )
+        if any(sig in q_lower for sig in _SEMANTIC_SIGNALS):
+            return QueryRoute(use_sql=False, confidence=0.85,
+                              reason="Narrative question -> semantic search", query_type="semantic")
 
-        # ── Step 2: determine query type ─────────────────────
-        query_type = "semantic"
-        if any(kw in q_lower for kw in ("invoice", "invoice number", "vendor", "bill", "paid")):
-            query_type = "invoice"
-        elif any(kw in q_lower for kw in ("ledger", "payment record", "sheet", "row")):
-            query_type = "ledger"
-        else:
-            query_type = "invoice"   # default SQL type
+        invoice_nouns = [w for w, p in self.invoice_patterns.items() if p.search(query)]
+        ledger_nouns = [w for w, p in self.ledger_patterns.items() if p.search(query)]
+        aggregates = [w for w, p in self.aggregate_patterns.items() if p.search(query)]
+        amount_filters = _AMOUNT_PATTERN.findall(query)
 
-        # ── Step 3: extract structured parameters ────────────
+        if not (invoice_nouns or ledger_nouns) or not (aggregates or amount_filters):
+            return QueryRoute(use_sql=False, confidence=0.8,
+                              reason="Not a question about invoice/ledger figures -> semantic search",
+                              query_type="semantic")
+
+        query_type = "invoice" if invoice_nouns else "ledger"
         sql_params: Dict[str, Any] = {}
 
-        # Vendor
         m = _VENDOR_PATTERN.search(query)
         if m:
             sql_params["vendor"] = m.group(1).strip().rstrip(".,?")
 
-        # Invoice number
-        m = _INVOICE_NO_PATTERN.search(query)
-        if m:
-            sql_params["invoice_number"] = m.group(1)
-
-        # Date range
         m = _DATE_RANGE_PATTERN.search(query)
         if m:
             sql_params["date_from"] = m.group(1).strip()
             sql_params["date_to"] = m.group(2).strip()
 
-        # Amount threshold
-        amount_matches = _AMOUNT_PATTERN.findall(query)
-        if amount_matches:
-            for i, amt_str in enumerate(amount_matches):
-                amt = float(re.sub(r"[,\s]", "", amt_str))
-                # Determine if min or max
-                ctx = query[max(0, query.lower().find(amt_str) - 20):query.lower().find(amt_str) + len(amt_str)]
-                if any(w in ctx.lower() for w in ("more than", "greater", "over", "above")):
-                    sql_params["min_amount"] = amt
-                else:
-                    sql_params["max_amount"] = amt
+        for direction, amount in amount_filters:
+            value = float(amount.replace(",", ""))
+            if direction.lower() in ("more than", "greater than", "over", "above"):
+                sql_params["min_amount"] = value
+            else:
+                sql_params["max_amount"] = value
 
-        # ── Step 4: decide ────────────────────────────────────
-        # Invoice number match always forces SQL path
-        if sql_params.get("invoice_number"):
-            use_sql = True
-            keyword_score = max(keyword_score, 0.9)
-        else:
-            use_sql = keyword_score >= 0.5 or bool(sql_params)
-        reason_parts = ["keywords=%s" % matched_keywords]
+        signals = sorted(set(invoice_nouns + ledger_nouns + aggregates))
+        reason = f"structured question; signals={signals}"
         if sql_params:
-            reason_parts.append("params=%s" % sql_params)
-
-        return QueryRoute(
-            use_sql=use_sql,
-            confidence=keyword_score if use_sql else 1.0 - keyword_score,
-            reason="; ".join(reason_parts),
-            sql_params=sql_params,
-            query_type=query_type,
-        )
+            reason += f"; params={sql_params}"
+        return QueryRoute(use_sql=True, confidence=0.75, reason=reason,
+                          sql_params=sql_params, query_type=query_type)
 
     def describe(self, route: QueryRoute) -> str:
         """Human-readable description of the routing decision."""

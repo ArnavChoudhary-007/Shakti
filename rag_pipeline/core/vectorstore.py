@@ -77,6 +77,16 @@ class VectorStore(ABC):
         """Remove all chunks belonging to a workspace."""
         ...
 
+    @abstractmethod
+    def delete_where(self, filters: Dict[str, Any]) -> None:
+        """Remove all chunks whose metadata exactly matches every filter."""
+        ...
+
+    @abstractmethod
+    def iter_metadata(self, batch_size: int = 1000):
+        """Yield the metadata dict of every stored chunk."""
+        ...
+
 
 # ── Chroma implementation ─────────────────────────────────────
 
@@ -178,6 +188,20 @@ class ChromaVectorStore(VectorStore):
         col = self._get_collection()
         col.delete(where={"workspace_id": {"$eq": workspace_id}})
         logger.info("Cleared all chunks for workspace_id=%r from Chroma.", workspace_id)
+
+    def delete_where(self, filters: Dict[str, Any]) -> None:
+        self._get_collection().delete(where=_build_chroma_where(filters))
+
+    def iter_metadata(self, batch_size: int = 1000):
+        col = self._get_collection()
+        offset = 0
+        while True:
+            batch = col.get(include=["metadatas"], limit=batch_size, offset=offset)
+            metas = batch.get("metadatas") or []
+            if not metas:
+                return
+            yield from metas
+            offset += len(metas)
 
 
 # ── FAISS implementation ──────────────────────────────────────
@@ -317,6 +341,13 @@ class FaissVectorStore(VectorStore):
     def clear_workspace(self, workspace_id: str = "default") -> None:
         self._delete_by_condition(lambda m: m.get("metadata", {}).get("workspace_id", "default") == workspace_id)
         logger.info("Cleared all chunks for workspace_id=%r from FAISS.", workspace_id)
+
+    def delete_where(self, filters: Dict[str, Any]) -> None:
+        self._delete_by_condition(lambda m: _match_filters(m.get("metadata", {}), filters))
+
+    def iter_metadata(self, batch_size: int = 1000):
+        for entry in list(self._meta):
+            yield entry.get("metadata", {})
 
 
     def _delete_by_condition(self, condition_fn) -> None:

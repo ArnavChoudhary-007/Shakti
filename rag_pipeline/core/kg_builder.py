@@ -56,7 +56,7 @@ async def build_graph_layout(workspace_id: str, db, host: str = "http://localhos
     # 1. Load data
     with db._connect() as conn:
         edges_rows = conn.execute("SELECT source, target, relation FROM kg_edges WHERE workspace_id = ?", (workspace_id,)).fetchall()
-        nodes_rows = conn.execute("SELECT id, label FROM kg_nodes WHERE id IN (SELECT source FROM kg_edges WHERE workspace_id = ? UNION SELECT target FROM kg_edges WHERE workspace_id = ?)", (workspace_id, workspace_id)).fetchall()
+        nodes_rows = conn.execute("SELECT id, label FROM kg_nodes WHERE workspace_id = ? AND id IN (SELECT source FROM kg_edges WHERE workspace_id = ? UNION SELECT target FROM kg_edges WHERE workspace_id = ?)", (workspace_id, workspace_id, workspace_id)).fetchall()
 
     if not nodes_rows or not edges_rows:
         logger.info("No graph data found. Skipping layout build.")

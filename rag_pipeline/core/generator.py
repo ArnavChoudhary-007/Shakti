@@ -17,7 +17,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Dict, Iterator, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import httpx
 
@@ -127,36 +127,37 @@ def _build_prompt(query: str, chunks: List[Dict[str, Any]]) -> str:
 
 
 # ── Formatting Guarantee ──────────────────────────────────────
+# Applied once to the finished answer, never per streamed token (a LaTeX
+# construct can span several tokens). Deliberately conservative: it must not
+# rewrite ordinary identifiers such as invoice_2024 or file_3.pdf.
 
 _LATEX_CLEANUP_RULES = [
+    (r"\$\$([^$]+)\$\$", r"\1"),                                        # strip block $$ delimiters
+    (r"\$(?=[^$\s])([^$]*?[\\_^][^$]*?)\$", r"\1"),                    # strip inline $..$ only around math
     (r"\\text\{([^}]*)\}", r"\1"),                                    # \text{Fe} -> Fe
     (r"\\frac\{(\d+)\}\{(\d+)\}", lambda m: f"{m.group(1)}/{m.group(2)}"),  # \frac{1}{2} -> 1/2
     (r"\\rightarrow", "→"),
     (r"\\to\b", "→"),
     (r"\\cdot", "·"),
     (r"\\left|\\right", ""),
-    (r"\$\$([^$]+)\$\$", r"\1"),                                        # strip block $$ delimiters
-    (r"\$([^$]*?(?:[_^\\]|=)[^$]*?)\$", r"\1"),                         # strip inline $ only if it contains math symbols
     (r"\\,", " "),
 ]
 
 _SUBSCRIPT_MAP = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
 _SUPERSCRIPT_MAP = str.maketrans("0123456789+-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻")
 
+# Subscripts only after an element symbol or a closing paren: H_2O, Fe(OH)_2.
+_SUBSCRIPT_RE = re.compile(r"(\b[A-Z][a-z]?|\))_(?:\{\s*(\d+)\s*\}|(\d+))")
+_SUPERSCRIPT_BRACED_RE = re.compile(r"\^\{\s*([\d+-]+)\s*\}")
+_SUPERSCRIPT_RE = re.compile(r"(?<=[A-Za-z0-9\)])\^(\d+[+-]?|[+-])(?!\w)")
+
+
 def clean_formatting_artifacts(text: str) -> str:
     for pattern, repl in _LATEX_CLEANUP_RULES:
         text = re.sub(pattern, repl, text)
-
-    # Convert remaining LaTeX-style subscript/superscript markers (_2, ^{2+}) to Unicode
-    text = re.sub(r"_\{\s*(\d+)\s*\}", lambda m: m.group(1).translate(_SUBSCRIPT_MAP), text)
-    text = re.sub(r"_(\d+)", lambda m: m.group(1).translate(_SUBSCRIPT_MAP), text)
-    
-    text = re.sub(r"\^\{\s*([\d+-]+)\s*\}", lambda m: m.group(1).translate(_SUPERSCRIPT_MAP), text)
-    text = re.sub(r"\^([\d+-]+)", lambda m: m.group(1).translate(_SUPERSCRIPT_MAP), text)
-
-    if "\\" in text or "$" in text:
-        logger.warning(f"Possible unhandled LaTeX formatting remains: {text}")
-
+    text = _SUBSCRIPT_RE.sub(lambda m: m.group(1) + (m.group(2) or m.group(3)).translate(_SUBSCRIPT_MAP), text)
+    text = _SUPERSCRIPT_BRACED_RE.sub(lambda m: m.group(1).translate(_SUPERSCRIPT_MAP), text)
+    text = _SUPERSCRIPT_RE.sub(lambda m: m.group(1).translate(_SUPERSCRIPT_MAP), text)
     return text
 
 
@@ -175,7 +176,31 @@ def analyze_structure(answer_text: str) -> Dict[str, bool]:
 
 # ── Citation extraction ───────────────────────────────────────
 
+NOT_FOUND_ANSWER = "Not found in documents."
 _CITATION_RE = re.compile(r"\[(\d+)\]")
+
+
+def is_not_found(answer: str) -> bool:
+    """True only when the model gave the 'nothing in the sources' answer —
+    not whenever the phrase 'not found' appears inside a real answer."""
+    normalized = answer.strip().strip("*_ ").rstrip(".").lower()
+    return normalized.startswith(("not found in documents", "not found in the documents"))
+
+
+def _citation_for(index: int, chunk: Dict[str, Any]) -> Citation:
+    meta = chunk.get("metadata", {})
+    source_type = meta.get("source_type", "")
+    sender = meta.get("sender") or None
+    if source_type in ("pdf", "docx", "pptx", "excel", "csv", "text"):
+        sender = None
+    return Citation(
+        index=index,
+        file_name=meta.get("file_name", "unknown"),
+        location=meta.get("location_label", ""),
+        full_text=chunk.get("text", "").strip(),
+        source_type=source_type,
+        sender=sender,
+    )
 
 
 def _extract_citations(
@@ -186,58 +211,57 @@ def _extract_citations(
     Find all [N] markers used in the answer and build structured Citation objects.
     Only includes indices that actually appear in the answer text.
     """
-    if "not found" in answer.lower():
+    if is_not_found(answer):
         return []
 
     used_indices = sorted(set(int(m) for m in _CITATION_RE.findall(answer)))
-    citations: List[Citation] = []
-
-    for idx in used_indices:
-        chunk_pos = idx - 1   # [1] → index 0
-        if chunk_pos < 0 or chunk_pos >= len(chunks):
-            continue
-        chunk = chunks[chunk_pos]
-        meta = chunk.get("metadata", {})
-        text = chunk.get("text", "")
-        
-        source_type = meta.get("source_type", "")
-        sender = meta.get("sender") or None
-        if source_type in ("pdf", "docx", "pptx", "excel", "csv"):
-            sender = None
-
-        citations.append(Citation(
-            index=idx,
-            file_name=meta.get("file_name", "unknown"),
-            location=meta.get("location_label", ""),
-            full_text=text.strip(),
-            source_type=source_type,
-            sender=sender,
-        ))
+    citations = [
+        _citation_for(idx, chunks[idx - 1])
+        for idx in used_indices
+        if 1 <= idx <= len(chunks)
+    ]
 
     # Fallback: if the model didn't include any [N] markers (common with small models),
     # auto-cite all retrieved chunks so the Sources panel is never empty.
-    if not citations and "not found" not in answer.lower():
-        logger.debug("No [N] markers found in answer — falling back to auto-citing all retrieved chunks")
-        for i, chunk in enumerate(chunks, start=1):
-            meta = chunk.get("metadata", {})
-            text = chunk.get("text", "")
-            source_type = meta.get("source_type", "")
-            sender = meta.get("sender") or None
-            if source_type in ("pdf", "docx", "pptx", "excel", "csv"):
-                sender = None
-            citations.append(Citation(
-                index=i,
-                file_name=meta.get("file_name", "unknown"),
-                location=meta.get("location_label", ""),
-                full_text=text.strip(),
-                source_type=source_type,
-                sender=sender,
-            ))
-
+    if not citations:
+        logger.debug("No [N] markers found in answer — auto-citing all retrieved chunks")
+        citations = [_citation_for(i, c) for i, c in enumerate(chunks, start=1)]
     return citations
 
 
+def sql_rows_to_chunks(sql_results: List[Dict[str, Any]], label: str = "structured_db") -> List[Dict[str, Any]]:
+    """Wrap SQL rows as a pseudo-chunk so the same prompt/citation path works."""
+    rows_text = json.dumps(sql_results, indent=2, default=str)
+    return [{
+        "chunk_id": "sql_result",
+        "text": f"Database query results:\n{rows_text}",
+        "metadata": {
+            "file_name": label,
+            "location_label": f"{len(sql_results)} database row(s)",
+            "source_type": "structured_db",
+            "sender": None,
+        },
+        "score": 1.0,
+    }]
+
+
 # ── Ollama client ─────────────────────────────────────────────
+
+class GenerationError(Exception):
+    """A user-presentable failure talking to Ollama."""
+
+
+_FOLLOW_UP_RE = re.compile(
+    r"\b(it|its|they|them|their|this|that|these|those|he|she|him|her|his|"
+    r"the same|above|previous|earlier|also|more|else)\b|^(and|but|what about|how about|why)\b",
+    re.IGNORECASE,
+)
+
+
+def looks_like_follow_up(query: str) -> bool:
+    """Cheap check so standalone questions skip the rewrite LLM call."""
+    return len(query.split()) <= 4 or bool(_FOLLOW_UP_RE.search(query))
+
 
 class Generator:
     """
@@ -245,15 +269,10 @@ class Generator:
 
     Usage:
         gen = Generator(config)
-        # Streaming (yields tokens):
-        async for token in gen.generate_stream(query, chunks, model="llama3.2"):
-            print(token, end="", flush=True)
-
-        # Non-streaming (returns CitationResult):
-        result = await gen.generate(query, chunks)
-        print(result.answer)
-        for c in result.citations:
-            print(f"[{c.index}] {c.file_name} — {c.location}")
+        tokens = []
+        async for token in gen.generate_stream(query, chunks):
+            tokens.append(token)
+        result = gen.finalize("".join(tokens), chunks, model)
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -263,7 +282,12 @@ class Generator:
         self.ollama_host = ollama_cfg.get("host", "http://localhost:11434")
         self._grader_model = ollama_cfg.get("grader_model")
         self.default_vision_model = ollama_cfg.get("default_vision_model", "llava")
-        self.timeout = float(ollama_cfg.get("request_timeout", 120))
+        self.timeout = float(ollama_cfg.get("request_timeout", 300))
+        # Keep the model loaded between questions (Ollama's default is 5m).
+        self.keep_alive = ollama_cfg.get("keep_alive", "30m")
+        # Ollama silently truncates prompts beyond num_ctx; set it explicitly.
+        self.num_ctx = int(ollama_cfg.get("num_ctx", 8192))
+        self._http: Optional[httpx.AsyncClient] = None
 
     @property
     def default_text_model(self) -> str:
@@ -278,47 +302,62 @@ class Generator:
     def _resolve_model(self, model: Optional[str]) -> str:
         return model or self.default_text_model
 
+    def _client(self) -> httpx.AsyncClient:
+        if self._http is None or self._http.is_closed:
+            self._http = httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, connect=10.0))
+        return self._http
+
+    def _payload(self, model: str, prompt: str, *, system: Optional[str] = None,
+                 stream: bool = False, temperature: Optional[float] = None) -> Dict[str, Any]:
+        options: Dict[str, Any] = {"num_ctx": self.num_ctx}
+        if temperature is not None:
+            options["temperature"] = temperature
+        payload: Dict[str, Any] = {
+            "model": model, "prompt": prompt, "stream": stream,
+            "keep_alive": self.keep_alive, "options": options,
+        }
+        if system:
+            payload["system"] = system
+        return payload
+
+    async def _complete(self, model: str, prompt: str, **kwargs: Any) -> str:
+        """Single non-streaming completion. Raises GenerationError."""
+        try:
+            resp = await self._client().post(
+                f"{self.ollama_host}/api/generate", json=self._payload(model, prompt, **kwargs)
+            )
+            resp.raise_for_status()
+            return resp.json().get("response", "")
+        except httpx.HTTPStatusError as e:
+            raise GenerationError(_describe_status_error(e, model)) from e
+        except httpx.HTTPError as e:
+            raise GenerationError(_describe_connection_error(e, model)) from e
+
     async def grade_context(self, query: str, chunks: List[Dict[str, Any]]) -> bool:
         """
-        Algorithmic Grader: Evaluate if the retrieved context contains the answer to the query.
+        Optional LLM relevance check (config retrieval.use_llm_grader). Costs a
+        full extra model call, so it's off by default; the answer prompt
+        already tells the model to reply "Not found in documents." when the
+        sources don't contain the answer.
         """
         if not chunks:
             return False
-        
-        context_parts = []
-        for c in chunks:
-            meta = c.get("metadata", {})
-            file_name = meta.get("file_name", "unknown")
-            source_type = meta.get("source_type", "unknown")
-            text = c.get("text", "")
-            context_parts.append(f"[File: {file_name} | Type: {source_type}]\n{text}")
-        context = "\n\n".join(context_parts)
+        context = "\n\n".join(
+            f"[File: {c.get('metadata', {}).get('file_name', 'unknown')}]\n{c.get('text', '')}" for c in chunks
+        )
         prompt = (
             "Evaluate if the following context contains the answer to the user's query. "
             "Output EXACTLY 'True' if it does, and 'False' if it does not. Do not output anything else.\n\n"
             f"Query: {query}\n\nContext: {context}"
         )
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(
-                    f"{self.ollama_host}/api/generate",
-                    json={
-                        "model": self.grader_model,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {"temperature": 0.0}
-                    }
-                )
-                if resp.status_code == 200:
-                    result = resp.json().get("response", "").strip()
-                    if "False" in result or "false" in result:
-                        return False
-                return True
-        except Exception as e:
-            logger.warning(f"Algorithmic Grader failed: {e}. Defaulting to True.")
+            result = await self._complete(self.grader_model, prompt, temperature=0.0)
+        except GenerationError as e:
+            logger.warning("Grader failed: %s. Defaulting to relevant.", e)
             return True
+        return "false" not in result.strip().lower()
 
-    # ── Async streaming ───────────────────────────────────────
+    # ── Streaming ─────────────────────────────────────────────
 
     async def generate_stream(
         self,
@@ -326,89 +365,48 @@ class Generator:
         chunks: List[Dict[str, Any]],
         model: Optional[str] = None,
     ) -> AsyncIterator[str]:
-        """
-        Yield tokens as they stream from Ollama.
-        The final yield (after all tokens) is a special JSON sentinel:
-            __CITATIONS__:{...}
-        which the API layer strips and sends separately.
-        """
+        """Yield raw answer tokens from Ollama. Raises GenerationError."""
         resolved_model = self._resolve_model(model)
-        prompt = _build_prompt(query, chunks)
-        full_answer: List[str] = []
-
+        payload = self._payload(resolved_model, _build_prompt(query, chunks), system=_SYSTEM_PROMPT, stream=True)
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.ollama_host}/api/generate",
-                    json={
-                        "model": resolved_model,
-                        "system": _SYSTEM_PROMPT,
-                        "prompt": prompt,
-                        "stream": True,
-                    },
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if not line.strip():
-                            continue
-                        try:
-                            data = json.loads(line)
-                            token = data.get("response", "")
-                            if token:
-                                token = clean_formatting_artifacts(token)
-                                full_answer.append(token)
-                                yield token
-                            if data.get("done", False):
-                                break
-                        except json.JSONDecodeError:
-                            continue
+            async with self._client().stream("POST", f"{self.ollama_host}/api/generate", json=payload) as response:
+                if response.status_code >= 400:
+                    await response.aread()
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if data.get("error"):
+                        raise GenerationError(str(data["error"]))
+                    token = data.get("response", "")
+                    if token:
+                        yield token
+                    if data.get("done", False):
+                        break
         except httpx.HTTPStatusError as e:
-            logger.error(f"Ollama HTTP error: {e}")
-            if "cloud" in resolved_model.lower():
-                if e.response.status_code == 401:
-                    yield "\n[Error: This model requires authorization. Please run `ollama signin` in your terminal to connect to Ollama Cloud.]"
-                elif e.response.status_code == 404:
-                    yield f"\n[Error: The model '{resolved_model}' was not found on Ollama Cloud. Please try a different cloud model or use a local one.]"
-                else:
-                    yield f"\n[Error: Ollama Cloud returned HTTP {e.response.status_code}.]"
-                return
-            yield f"\n[Error connecting to Ollama: {e}]"
-            return
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
-            logger.error(f"Ollama connection error: {e}")
-            if "cloud" in resolved_model.lower():
-                yield "\n[Error: This model requires an internet connection or authorization. Try a local model instead.]"
-                return
-            yield f"\n[Error connecting to Ollama: {e}]"
-            return
-        except Exception as e:
-            logger.error(f"Ollama request failed: {e}")
-            yield f"\n[Error generating response: {e}]"
-            return
+            raise GenerationError(_describe_status_error(e, resolved_model)) from e
+        except httpx.HTTPError as e:
+            raise GenerationError(_describe_connection_error(e, resolved_model)) from e
 
-        # Post-process citations + structure and yield as sentinel
-        answer_text = "".join(full_answer)
-        answer_text = clean_formatting_artifacts(answer_text)
-        citations = _extract_citations(answer_text, chunks)
-        structure = analyze_structure(answer_text)
-        citations_payload = {
-            "citations": [
-                {
-                    "index": c.index,
-                    "file_name": c.file_name,
-                    "location": c.location,
-                    "full_text": c.full_text,
-                    "source_type": c.source_type,
-                    "sender": c.sender,
-                }
-                for c in citations
-            ],
-            "structure": structure,
-        }
-        yield f"\n__CITATIONS__:{json.dumps(citations_payload)}"
+    def finalize(self, raw_answer: str, chunks: List[Dict[str, Any]], model: str,
+                 used_sql: bool = False) -> CitationResult:
+        """Clean the finished answer and attach the citations it actually uses."""
+        answer = clean_formatting_artifacts(raw_answer).strip()
+        if is_not_found(answer):
+            answer = NOT_FOUND_ANSWER
+        return CitationResult(
+            answer=answer,
+            citations=_extract_citations(answer, chunks),
+            model=model,
+            used_sql=used_sql,
+            structure=analyze_structure(answer),
+        )
 
-    # ── Non-streaming (for tests + structured DB answers) ─────
+    # ── Non-streaming ─────────────────────────────────────────
 
     async def generate(
         self,
@@ -417,175 +415,70 @@ class Generator:
         model: Optional[str] = None,
         used_sql: bool = False,
     ) -> CitationResult:
-        """Full non-streaming generate. Collects all tokens then extracts citations."""
+        """Full non-streaming generate. Raises GenerationError."""
         resolved_model = self._resolve_model(model)
-        prompt = _build_prompt(query, chunks)
-        full_answer = ""
-
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(
-                    f"{self.ollama_host}/api/generate",
-                    json={
-                        "model": resolved_model,
-                        "system": _SYSTEM_PROMPT,
-                        "prompt": prompt,
-                        "stream": False,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                full_answer = data.get("response", "")
-        except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout) as e:
-            logger.error(f"Ollama connection error: {e}")
-            if "cloud" in resolved_model.lower():
-                full_answer = "[Error: This model requires an internet connection. Try a local model instead, or check your connection.]"
-            else:
-                full_answer = f"[Error connecting to Ollama: {e}]"
-        except Exception as e:
-            logger.error(f"Ollama request failed: {e}")
-            full_answer = f"[Error connecting to Ollama: {e}]"
-
-        full_answer = clean_formatting_artifacts(full_answer)
-        citations = _extract_citations(full_answer, chunks)
-        structure = analyze_structure(full_answer)
-        return CitationResult(
-            answer=full_answer,
-            citations=citations,
-            model=resolved_model,
-            used_sql=used_sql,
-            structure=structure,
-        )
-
-    # ── Contextualize Query ───────────────────────────────────
-
-    async def contextualize_query(self, query: str, history: List[Dict[str, str]], model: Optional[str] = None) -> str:
-        """Rewrite the query to be standalone given the chat history."""
-        if not history:
-            return query
-            
-        resolved_model = self._resolve_model(model)
-        
-        # Build conversation history string
-        hist_lines = []
-        for msg in history:
-            role = "User" if msg.get("role") == "user" else "Assistant"
-            hist_lines.append(f"{role}: {msg.get('content')}")
-        hist_str = "\n".join(hist_lines)
-        
-        prompt = (
-            "Given a chat history and the latest user question "
-            "which might reference context in the chat history, formulate a standalone question "
-            "which can be understood without the chat history. Do NOT answer the question, "
-            "just reformulate it if needed and otherwise return it as is.\n\n"
-            f"Chat History:\n{hist_str}\n\n"
-            f"Latest Question: {query}\n\n"
-            "Standalone Question:"
-        )
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                f"{self.ollama_host}/api/generate",
-                json={
-                    "model": resolved_model,
-                    "prompt": prompt,
-                    "stream": False,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            rewritten = data.get("response", "").strip()
-            return rewritten if rewritten else query
-
-    # ── SQL answer wrapper ────────────────────────────────────
+        raw = await self._complete(resolved_model, _build_prompt(query, chunks), system=_SYSTEM_PROMPT)
+        return self.finalize(raw, chunks, resolved_model, used_sql=used_sql)
 
     async def generate_from_sql(
         self,
         query: str,
         sql_results: List[Dict[str, Any]],
-        source_file: str = "structured_db",
         model: Optional[str] = None,
     ) -> CitationResult:
-        """
-        Generate a natural-language answer from SQL query results.
-        Wraps the SQL results as fake chunks so the same citation machinery works.
-        """
-        # Convert SQL rows to pseudo-chunks
-        rows_text = json.dumps(sql_results, indent=2, default=str)
-        pseudo_chunks = [{
-            "chunk_id": "sql_result",
-            "text": f"Database query results:\n{rows_text}",
-            "metadata": {
-                "file_name": source_file,
-                "page_or_timestamp": "SQL query result",
-                "source_type": "structured_db",
-                "sender": None,
-            },
-            "score": 1.0,
-        }]
-        result = await self.generate(query, pseudo_chunks, model=model, used_sql=True)
-        return result
+        return await self.generate(query, sql_rows_to_chunks(sql_results), model=model, used_sql=True)
 
-    # ── Sync streaming (for simple callers) ──────────────────
+    # ── Contextualize Query ───────────────────────────────────
 
-    def generate_stream_sync(
-        self,
-        query: str,
-        chunks: List[Dict[str, Any]],
-        model: Optional[str] = None,
-    ) -> Iterator[str]:
-        """
-        Synchronous streaming wrapper using httpx sync client.
-        Yields tokens, then a final __CITATIONS__:{...} sentinel.
-        """
-        resolved_model = self._resolve_model(model)
-        prompt = _build_prompt(query, chunks)
-        full_answer: List[str] = []
+    async def contextualize_query(self, query: str, history: List[Dict[str, str]], model: Optional[str] = None) -> str:
+        """Rewrite a follow-up question to be standalone. Skips the LLM call
+        for questions that don't look like follow-ups."""
+        if not history or not looks_like_follow_up(query):
+            return query
 
-        with httpx.Client(timeout=self.timeout) as client:
-            with client.stream(
-                "POST",
-                f"{self.ollama_host}/api/generate",
-                json={
-                    "model": resolved_model,
-                    "system": _SYSTEM_PROMPT,
-                    "prompt": prompt,
-                    "stream": True,
-                },
-            ) as response:
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        data = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    token = data.get("response", "")
-                    if token:
-                        full_answer.append(token)
-                        yield token
-                    if data.get("done", False):
-                        break
+        hist_str = "\n".join(
+            f"{'User' if m.get('role') == 'user' else 'Assistant'}: {(m.get('content') or '')[:1000]}"
+            for m in history[-6:]
+        )
+        prompt = (
+            "Given a chat history and the latest user question "
+            "which might reference context in the chat history, formulate a standalone question "
+            "which can be understood without the chat history. Do NOT answer the question, "
+            "just reformulate it if needed and otherwise return it as is. "
+            "Output only the question.\n\n"
+            f"Chat History:\n{hist_str}\n\n"
+            f"Latest Question: {query}\n\n"
+            "Standalone Question:"
+        )
+        try:
+            rewritten = (await self._complete(self._resolve_model(model), prompt, temperature=0.0)).strip()
+        except GenerationError as e:
+            logger.warning("Query rewrite failed (%s); using original question.", e)
+            return query
+        return rewritten.strip('"').strip() or query
 
-        answer_text = "".join(full_answer)
-        citations = _extract_citations(answer_text, chunks)
-        structure = analyze_structure(answer_text)
-        citations_payload = {
-            "citations": [
-                {
-                    "index": c.index,
-                    "file_name": c.file_name,
-                    "location": c.location,
-                    "snippet": c.snippet,
-                    "source_type": c.source_type,
-                    "sender": c.sender,
-                }
-                for c in citations
-            ],
-            "structure": structure,
-        }
-        yield f"\n__CITATIONS__:{json.dumps(citations_payload)}"
+    async def aclose(self) -> None:
+        if self._http is not None:
+            await self._http.aclose()
+
+
+def _describe_status_error(e: httpx.HTTPStatusError, model: str) -> str:
+    code = e.response.status_code
+    try:
+        detail = e.response.json().get("error", "")
+    except ValueError:
+        detail = ""
+    if code == 404:
+        return f"The model '{model}' isn't installed in Ollama. Download it on the Models page or pick another model."
+    if "cloud" in model.lower() and code == 401:
+        return "This cloud model needs authorization. Run `ollama signin` in a terminal, or use a local model."
+    return f"Ollama returned HTTP {code}{': ' + detail if detail else ''}."
+
+
+def _describe_connection_error(e: Exception, model: str) -> str:
+    if isinstance(e, (httpx.ReadTimeout, httpx.WriteTimeout)):
+        return f"The model '{model}' took too long to respond. Try a smaller model."
+    return "Can't reach Ollama. Make sure it's installed and running."
 
 
 # ── Prompt inspection utility ─────────────────────────────────
