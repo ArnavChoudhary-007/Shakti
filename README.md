@@ -1,193 +1,176 @@
-# Local-First Citation-Grounded RAG Pipeline
+# Shakti — private document AI
 
-A fully offline, local-first RAG (Retrieval-Augmented Generation) system with:
-- **Perplexity-style inline citations** — every answer cites exact source chunks
-- **Streaming LLM responses** via Ollama (swappable model per request)
-- **Multi-source ingestion** — PDFs, Excel, emails, chats, audio, invoices
-- **Multimodal** — text + vision models both via Ollama
-- **Dynamic Hardware Recommendations** — Automatically suggests models tailored to your system's available RAM and CPU
-- **Asynchronous Knowledge Graph Extraction** — Non-blocking, decoupled entity extraction for lightning-fast ingestion
-- **Zero cloud dependencies** — runs fully offline after initial setup
+Ask questions about your own documents and get answers with citations, using
+AI that runs **entirely on your PC**. No account, no cloud, no subscription.
 
----
+- **Answers with sources.** Every claim cites the exact page, message or row it
+  came from.
+- **All your formats.** PDF, Word, PowerPoint, Excel/CSV, text & Markdown,
+  emails, WhatsApp/Telegram/Slack/Teams exports, audio, scanned invoices.
+- **Runs on your hardware.** Uses [Ollama](https://ollama.com) for the AI
+  model; Shakti suggests models that fit your PC's memory.
+- **Workspaces** keep separate collections of documents apart.
+- **Knowledge graph** of the people, organizations and ideas in your files.
 
-## Requirements
+## Install (Windows)
 
-- Python 3.11+
-- [Ollama](https://ollama.ai) running locally (`ollama serve`)
-- Tesseract OCR (for scanned PDFs): install via system package manager
-- At least one Ollama text model pulled: `ollama pull llama3.2`
-- At least one Ollama vision model pulled: `ollama pull llava`
+Press <kbd>Win</kbd>+<kbd>R</kbd>, paste this and press Enter:
 
-## Quick Start (For Non-Technical Users on Windows)
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/ArnavChoudhary-007/Shakti/main/install.ps1 | iex"
+```
 
-We have included a 1-click launcher to handle all the complex technical setup for you.
+It installs for your user only (no admin rights), then opens Shakti in your
+browser. The setup page helps you install Ollama and download a model, then
+you upload documents and start asking. [Read the script](install.ps1) first if
+you like — it installs [uv](https://docs.astral.sh/uv/) (which brings its own
+Python), downloads the latest release, and adds a Start-menu shortcut.
 
-1. Ensure you have installed **Python** (from python.org) and **Ollama** (from ollama.ai).
-2. Simply double-click the **`start_windows.bat`** file in the project folder.
-3. The script will automatically install dependencies, download the necessary AI models, and open the web app in your browser!
+- **Update:** run the same command again. Your documents and settings are kept.
+- **Uninstall:** `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/ArnavChoudhary-007/Shakti/main/install.ps1))) -Uninstall`
+  (removes the app; your data stays in `%LOCALAPPDATA%\Shakti\data` until you delete it).
 
----
+macOS and Linux installers aren't ready yet — use the developer setup below.
 
-## Developer / Manual Setup (For Advanced Users)
+## How it works
 
-If you are on macOS/Linux, or prefer to set up the environment manually:
+```
+ Your browser                              Your PC
+┌──────────────────────────┐   127.0.0.1  ┌──────────────────────────────┐
+│ Shakti website           │ ───────────▶ │ Shakti companion (FastAPI)   │
+│  • served by the         │              │  parse → chunk → embed →     │
+│    companion, or         │              │  search → cite               │
+│  • the public site       │              │  SQLite + Chroma, data dir   │
+│    (GitHub Pages)        │              └──────────────┬───────────────┘
+└──────────────────────────┘                             │ 127.0.0.1:11434
+                                                         ▼
+                                                   Ollama (the LLM)
+```
+
+The **companion** is the Python pipeline in `rag_pipeline/`. It listens only on
+`127.0.0.1`, stores everything under one data folder
+(`%LOCALAPPDATA%\Shakti\data` when installed), and serves the web UI at
+<http://127.0.0.1:8000>.
+
+The same web UI is also published as a static site. Opened there, it finds the
+companion on your PC. Before it can do anything it must be **paired**: open
+Shakti → Settings → *Connect the website*. Every other website is refused —
+see [Security](#security).
+
+## Developer setup
+
+Requirements: Python 3.10–3.12 (the installer uses 3.12; 3.9 still runs the
+tests), Node.js 20+, and [Ollama](https://ollama.com/download).
 
 ```bash
-# 1. Create and activate a virtual environment
 python -m venv .venv
-.venv\Scripts\activate    # Windows
-# source .venv/bin/activate  # macOS/Linux
-
-# 2. Install dependencies (pinned to exact versions — see rag_pipeline/requirements.txt)
+.venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
 pip install -r rag_pipeline/requirements.txt
 
-# 3. (Optional) Install PyTorch CPU-only for a smaller download
-pip install torch --index-url https://download.pytorch.org/whl/cpu
+cd web && npm ci && npm run build && cd ..   # builds the UI into rag_pipeline/webui
 
-# 4. Pull required Ollama models
-ollama pull llama3.2
-ollama pull llava
-
-# 5. Configure
-cp rag_pipeline/config.example.yaml rag_pipeline/config.yaml
-# Edit rag_pipeline/config.yaml if you need to change the Ollama host,
-# model names, chunk sizes, etc. — config.yaml is gitignored, so your
-# local edits never get committed.
-
-# 6. Run the API server — always from the repo root (see note below)
-uvicorn rag_pipeline.api.main:app --reload --port 8000
+python -m rag_pipeline            # starts on http://127.0.0.1:8000 and opens the browser
 ```
 
-> **Always launch from the repo root**, not from inside `rag_pipeline/`.
-> `chroma_persist_dir` and `sqlite_path` in `config.yaml` are relative
-> paths, resolved against whatever directory the process starts in — launching
-> from the wrong directory silently creates a second, empty database instead
-> of using the real one. `start_windows.bat` already does this correctly.
+On Windows, `start_windows.bat` does all of the above.
 
-## Running the Demo
+Useful options: `python -m rag_pipeline --data-dir D:\shakti-data --port 8001 --no-browser`.
+Without `--data-dir` (or `SHAKTI_DATA_DIR`) a dev checkout keeps its data in the
+repo root (`chroma_db/`, `structured_db/`, `uploads/`), all gitignored.
 
-Once the server is running (`http://localhost:8000` in your browser):
+**Working on the UI:** run the companion, then `npm run dev` in `web/` and open
+<http://localhost:5173> — Vite hot-reloads, and the dev origin is trusted by the
+companion so no pairing is needed.
 
-1. Go to the **Ingest** tab and upload the three files in `sample_data/`
-   — a 2-page vendor evaluation memo (PDF), an expense ledger (CSV), and
-   a WhatsApp-style team chat export (TXT). All three describe the same
-   fictional scenario (a packaging vendor decision at a made-up
-   company) so a single query can pull from more than one source. None
-   of it is real; it exists so you can see the whole pipeline work
-   without needing your own documents.
-2. Once ingestion finishes (watch the per-file progress in the UI),
-   switch to the **Chat** tab and ask: *"Which vendor did the team
-   decide to go with, and what's the contract value?"* — the answer
-   should cite both the chat export (the decision) and the PDF or CSV
-   .
-3. The answer should stream in with numbered citations. Click one — it
-   should open the original file at the right page/location, not just
-   show a text snippet.
-4. Optional: go to the **Knowledge Graph** tab and click **Rebuild
-   Graph** to see entity extraction run (this makes real Ollama calls
-   and can take a minute or two even on this small sample set).
+**Tests:** `python -m pytest rag_pipeline/tests` (no Ollama needed — the API
+end-to-end test stubs the model and uses a temporary data folder), and
+`npm run build` in `web/` (type-checks then builds).
 
-## Out of Scope
+## Trying it with the sample data
 
-This is a local, single-user tool. Explicitly **not** handled:
+`sample_data/` holds three synthetic files about one made-up decision: a vendor
+evaluation memo (PDF), an expense ledger (CSV) and a team chat (WhatsApp TXT).
+Upload all three on the **Documents** page, then ask:
 
-- **Multiple concurrent users / multi-tenancy.** There's no
-  authentication, no per-user data isolation, and `workspace_id` is a
-  logical label, not a security boundary. See `ARCHITECTURE.md` for the
-  full list of single-user assumptions baked into the code.
-- **Any LLM provider other than Ollama.** No OpenAI/Anthropic/Gemini/etc.
-  integration exists or is planned; the only non-local option is an
-  Ollama `:cloud` model.
-- **A distributed task queue.** Background ingestion uses FastAPI's
-  built-in `BackgroundTasks`, not Celery/RQ/etc. — by design, not as a
-  stopgap.
-- **GPU as a requirement.** The tested default path is CPU-only
-  (targeting modest hardware, e.g. 16GB RAM, no dedicated GPU); a GPU
-  will be used opportunistically if `config.yaml`'s `device` is set to
-  `cuda`, but nothing is validated against one.
-- **Production-grade auth, rate limiting, or hardening.** CORS is wide
-  open and every endpoint is unauthenticated — appropriate for a tool
-  that only ever talks to itself on `localhost`, not for anything
-  exposed to a network.
-- **PST email support out of the box.** The mbox/eml paths work with the
-  pinned dependencies; PST requires `libpff-python`, which isn't
-  installed by default (see the comment in `requirements.txt`) since it
-  can require build tools on Windows.
-- **Non-English content quality.** Nothing in the pipeline assumes a
-  language, but chunk sizes, the entity-type prompt, and citation
-  formatting were only tuned and tested against English documents.
+- *"Which vendor did the team decide to go with, and what is the contract value?"*
+  → BrightPack Supplies, $842,000/year, citing the memo.
+- *"What is the total amount of expenses paid to BrightPack Supplies in the ledger?"*
+  → answered from the spreadsheet rows, with the total computed exactly.
 
-## Project Structure
+## Releasing
 
-```
-p1/
-├── sample_data/                    # Synthetic files for the demo — see "Running the Demo"
-├── ARCHITECTURE.md                 # Pipeline internals, API reference, single-user assumptions
-├── start_windows.bat               # 1-click launcher (Windows)
-├── chroma_db/                      # Chroma persistent storage (auto-created, gitignored)
-├── structured_db/                  # SQLite data files (auto-created, gitignored)
-└── rag_pipeline/
-    ├── connectors/                 # One module per source type
-    ├── core/
-    │   ├── normalizer.py           # Canonical document schema
-    │   ├── chunker.py              # Source-aware chunking
-    │   ├── embedder.py             # sentence-transformers encoding
-    │   ├── vectorstore.py          # Chroma/FAISS interface
-    │   ├── retriever.py            # Hybrid retrieval
-    │   ├── generator.py            # Citation-grounded streaming generator
-    │   ├── kg_builder.py           # Knowledge graph clustering/labeling
-    │   └── model_catalog.py        # Live hardware + Ollama model detection
-    ├── structured_db/              # SQLite access layer (db.py, router.py)
-    ├── api/                        # FastAPI app (main.py)
-    ├── frontend/                   # Plain HTML/CSS/JS UI, no build step
-    ├── tests/                      # pytest suite + synthetic fixtures
-    ├── config.example.yaml         # Template — copy to config.yaml
-    ├── config.yaml                 # Your local config (gitignored, not committed)
-    └── requirements.txt            # Pinned to exact versions
-```
+- Push a tag like `v0.2.1`: the **Release** workflow builds the UI, packages
+  `dist/shakti-companion.zip` (`scripts/package_release.py`) and attaches it to a
+  GitHub release — that's what `install.ps1` downloads.
+- Pushes to `main` that touch `web/` redeploy the public site (**Website**
+  workflow). Enable it once under *Settings → Pages → Source: GitHub Actions*.
+- If you fork, update `web/src/lib/config.ts` (repo, site URL) and
+  `server.web_origins` in `config.example.yaml`.
 
 ## Configuration
 
-All tunable parameters live in `config.yaml`:
+Installed copies read `%LOCALAPPDATA%\Shakti\data\config.yaml`; dev checkouts
+read `rag_pipeline/config.yaml`, falling back to `config.example.yaml`. The
+chat model chosen in the UI is saved in `settings.json` and overrides
+`ollama.default_text_model`.
 
 | Key | Description | Default |
 |-----|-------------|---------|
+| `server.port` | Companion port (`SHAKTI_PORT`) | `8000` |
+| `server.web_origins` | Public sites allowed to pair (`SHAKTI_WEB_ORIGINS`) | the GitHub Pages site |
+| `ollama.host` | Ollama API URL | `http://localhost:11434` |
+| `ollama.keep_alive` / `num_ctx` | Keep the model loaded / context window | `30m` / `8192` |
 | `embedding.model_name` | sentence-transformers model | `all-MiniLM-L6-v2` |
 | `vector_store.backend` | `chroma` or `faiss` | `chroma` |
-| `ollama.host` | Ollama API URL | `http://localhost:11434` |
-| `ollama.default_text_model` | Default LLM | `llama3.2` |
-| `ollama.default_vision_model` | Default vision model | `llava` |
-| `chunking.default_chunk_size` | Chars per chunk | `800` |
-| `chunking.default_chunk_overlap` | Overlap between chunks | `150` |
+| `retrieval.final_k` | Passages given to the model per question | `6` |
+| `retrieval.use_llm_grader` | Extra relevance check (slower) | `false` |
+| `chunking.default_chunk_size` | Characters per chunk | `800` |
 | `audio.whisper_model_size` | Whisper model size | `base` |
-| `audio.diarization_enabled` | Speaker diarization (needs HF token) | `false` |
 
-## Citations
+## Security
 
-Every generated answer contains inline `[N]` markers that map to:
-- **File name** — original source file
-- **Location** — page number, timestamp, or message range
-- **Snippet** — the exact text the model cited
+The companion is a local service, so the threat is *other websites in your
+browser* calling it. It defends against that:
 
-The frontend renders these as hoverable pills showing full source context.
+- It listens on `127.0.0.1` only and rejects requests whose `Host` isn't
+  localhost (blocks DNS rebinding).
+- Requests from any origin other than its own page are refused **before
+  routing** — including form posts that CORS alone would let through. The
+  public site is allowed only with the pairing token, and can never read it.
+- Uploaded files aren't served back over HTTP, and there's no endpoint that
+  reads arbitrary paths.
+- Model output is rendered as Markdown without raw HTML.
+- The Ollama installer is only launched if it carries a valid "Ollama Inc."
+  code signature.
 
-## Supported Source Types
+It is still a single-user tool: there are no accounts, and anyone with access
+to your Windows session can use it. See `ARCHITECTURE.md` for internals.
 
-| Source | Format | Notes |
-|--------|--------|-------|
-| PDFs | `.pdf` | Digital text + OCR fallback for scanned |
-| Excel / CSV | `.xlsx`, `.xls`, `.csv` | Tabular sheets → SQLite; narrative → vector |
-| Emails | `.mbox`, `.pst` | PST requires `libpff-python` |
-| WhatsApp | `.txt` | Standard export format |
-| Telegram | `.json` | Standard export format |
-| Slack | `.json` | Channel-based export |
-| Teams | `.json` | Standard export format |
-| Invoices | `.pdf`, images | Structured field extraction |
-| Audio calls | `.mp3`, `.wav`, `.m4a` | Transcription + optional diarization |
+## Limits
 
-## Architecture
+- Windows is the only tested platform for now.
+- Answers are only as good as the local model; small models (1–3B) can
+  misread tables or mix up details. Check the cited sources for anything
+  important.
+- `.doc`/`.ppt` (pre-2007 Office) files must be saved as `.docx`/`.pptx`.
+  PST email needs `libpff-python`, which isn't installed by default.
+- Tuned and tested with English documents.
 
-See `ARCHITECTURE.md` for pipeline internals, the full API endpoint
-reference, and — importantly — exactly where this codebase assumes a
-single user on a single machine.
+## Project structure
+
+```
+├── install.ps1              # one-line Windows installer
+├── start_windows.bat        # dev launcher
+├── scripts/package_release.py
+├── web/                     # React + Vite + TypeScript UI → builds into rag_pipeline/webui
+├── sample_data/             # synthetic demo files
+└── rag_pipeline/
+    ├── __main__.py          # `python -m rag_pipeline` launcher
+    ├── api/                 # FastAPI app (main.py) + request guard (security.py)
+    ├── connectors/          # one module per source type
+    ├── core/                # normalize, chunk, embed, store, retrieve, generate, KG, Ollama setup
+    ├── structured_db/       # SQLite (invoices, ledgers, KG, documents) + query router
+    ├── settings.py          # UI-chosen settings + pairing token
+    ├── tests/
+    └── config.example.yaml
+```

@@ -47,8 +47,9 @@ class CitationResult:
 
 # ── Prompt builder ────────────────────────────────────────────
 
-_SYSTEM_PROMPT = """\
-You are an expert research assistant. You answer questions using ONLY the
+# Raw string: the LaTeX examples below must reach the model as literal
+# backslashes, not as \r, \t and \f control characters.
+_SYSTEM_PROMPT = r"""You are an expert research assistant. You answer questions using ONLY the
 numbered sources provided. You are FORBIDDEN from using any external knowledge.
 
 Formatting rules — follow them exactly:

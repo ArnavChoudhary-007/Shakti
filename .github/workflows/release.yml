@@ -1,0 +1,38 @@
+name: Release
+
+# Push a tag like v0.2.0 to build the companion package that install.ps1
+# downloads, and attach it to a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build web UI
+        working-directory: web
+        run: npm ci && npm run build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Package companion
+        run: python scripts/package_release.py
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="v$(node -p "require('./web/package.json').version")"; fi
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Shakti $TAG" --generate-notes
+          gh release upload "$TAG" dist/shakti-companion.zip --clobber

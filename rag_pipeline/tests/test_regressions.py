@@ -103,3 +103,10 @@ def test_sql_chunk_carries_exact_totals():
 def test_system_prompt_has_no_example_figures():
     from rag_pipeline.core.generator import _SYSTEM_PROMPT
     assert "$4,200" not in _SYSTEM_PROMPT
+
+
+def test_system_prompt_has_no_control_characters():
+    # Non-raw string turned "\rightarrow" / "\text" / "\frac" into \r, \t, \f.
+    from rag_pipeline.core.generator import _SYSTEM_PROMPT
+    assert not [c for c in _SYSTEM_PROMPT if ord(c) < 32 and c != "\n"]
+    assert r"\rightarrow" in _SYSTEM_PROMPT

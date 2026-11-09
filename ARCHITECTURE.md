@@ -1,10 +1,8 @@
 # Architecture
 
-This document is for whoever takes over running or extending this
-service. It covers the pipeline stages, every API endpoint, and — since
-this was built as a single-user local tool — exactly where that
-assumption is baked in, so you know what has to change before this
-could ever serve more than one person at a time.
+This document is for whoever takes over running or extending the Shakti
+companion. It covers the pipeline stages, every API endpoint, the security
+model, and the single-user assumptions that remain.
 
 ## Pipeline stages
 
@@ -12,7 +10,7 @@ Ingestion and query are two separate paths that share the vector store
 and the structured SQLite DB.
 
 ```
-INGESTION  (POST /ingest, /ingest_path)
+INGESTION  (POST /ingest; core/sync.py for watched folders)
   file on disk
     -> connectors/*  (extract_file)         one envelope per logical unit
                                              (PDF page, chat message, email, ...)
@@ -79,103 +77,110 @@ rag_pipeline/
 │   │                    communities, KG extraction queue, sync state
 │   └── router.py        Decides whether a query hits SQL or the vector store
 ├── api/main.py          FastAPI app — all endpoints (see below)
-└── frontend/index.html  Single-file HTML/CSS/JS UI, no build step
+├── api/security.py      CompanionGuard: Host check, origin allowlist, pairing token
+├── core/ollama_setup.py Detect / start / install Ollama
+├── settings.py          UI-chosen settings + pairing token (data dir)
+├── webui/               Built React UI from web/ (gitignored)
+└── __main__.py          `python -m rag_pipeline` launcher
 ```
 
 ## API endpoints
 
-All routes are unauthenticated and unversioned. Grouped as tagged in the app.
+Requests from the companion's own page need nothing extra. The public website
+must send `X-Shakti-Token` (see "Security model" below); every other origin
+gets 403 before routing. Interactive docs are at `/docs`.
 
-### System
+### Companion & setup
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/version` | Identifies the companion. The only route the public site may call before pairing (to detect an install). |
+| GET | `/pair/token` | Pairing token for the public site. Only the companion's own page can read it. |
+| GET/PUT | `/settings` | UI-chosen settings (`chat_model`), stored in `<data_dir>/settings.json`. |
+| GET | `/setup/status` | Ollama installed/running/version, installed models, chosen model and whether it's installed, auto-install progress. |
+| POST | `/setup/ollama/start` | Launches Ollama (the tray app on Windows, else `ollama serve`). |
+| POST | `/setup/ollama/install` | Windows: downloads `OllamaSetup.exe` from ollama.com, verifies its Authenticode signer is "Ollama Inc.", runs the interactive installer. Progress via `/setup/status`. |
 | GET | `/health` | Ollama reachability, embedder readiness, vector store count |
-| GET | `/models` | Locally available Ollama models, filtered to plausible names |
-| GET | `/ollama/models` | Raw passthrough of Ollama's `/api/tags` |
-| DELETE | `/ollama/models/{model_name}` | Delete a pulled model via Ollama |
-| GET | `/system/recommendations` | Live hardware specs (`psutil`) + installed models (from Ollama, not hardcoded) + curated not-yet-installed suggestions (`data/suggested_models.json`), filtered by detected RAM budget. 503 if Ollama is unreachable — never falls back to stale data. |
-| POST | `/ollama/pull` | Streams Ollama's model-pull progress back to the client (NDJSON) |
-| GET | `/docs_count` | Total chunk count in the vector store |
-| DELETE | `/system/clear` | Wipes all chunks + structured data (invoices, ledger, KG, KG queue) for a `workspace_id` |
+| GET | `/system/recommendations` | Live RAM/CPU + installed models + curated suggestions (`data/suggested_models.json`) that fit the RAM budget. 503 if Ollama is down. |
+| GET | `/models`, `/ollama/models` | Installed models (filtered / raw) |
+| POST | `/ollama/pull` | Streams Ollama's pull progress (NDJSON) |
+| DELETE | `/ollama/models/{name}` | Deletes a model |
 
-### RAG
+### Documents & ingestion
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/query` | Main entry point. Routes to SQL or vector search, supports `stream: true` (SSE) or JSON. Every answer carries numbered citations. |
-| POST | `/prompt_preview` | Debug: returns the exact prompt that would be sent to the model, without generating |
+| POST | `/ingest` | Multipart upload (`file`, `workspace_id`); returns a job (202). Jobs run one at a time in a worker thread. |
+| GET | `/ingest/status/{job_id}` | `queued` → `processing` (`stage`: reading / embedding / saving) → `done` (with `duplicate`, `replaced`, counts) or `failed` |
+| GET | `/documents?workspace_id=` | Files in a workspace |
+| DELETE | `/documents/{file_key}` | Removes one file everywhere (vectors, SQL rows, KG contributions, stored copy) |
+| GET | `/workspaces` | Workspaces holding documents |
+| DELETE | `/system/clear?workspace_id=` | Removes everything in a workspace |
+| GET | `/docs_count` | Total chunks in the vector store |
 
-### Ingestion
+**Identity and de-duplication.** A file's `file_key` is derived from its
+workspace and content hash; every `doc_id` (`<file_key>-<n>`) and `chunk_id`
+derives from it. Uploading identical bytes again is a no-op (`duplicate`);
+uploading a changed file with the same name replaces the old version
+(`replaced`). Files ingested before the `documents` table existed are
+backfilled on startup as `legacy` rows, grouped by workspace and file name.
+
+### Questions
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/ingest` | Upload a file (multipart), returns a `job_id` immediately (202), processes in a FastAPI `BackgroundTask` |
-| GET | `/ingest/status/{job_id}` | Poll job status: `processing` / `done` / `failed`, includes a per-stage timing breakdown once done |
-| POST | `/ingest_path` | Ingest a file already on disk by absolute path, runs synchronously (server-side/CLI use, not the browser UI) |
+| POST | `/query` | `{query, workspace_id, model?, history?, stream}`. Routes to SQL or document search within the workspace. `stream: true` returns Server-Sent Events: `status` (`understanding` / `searching` / `generating`), many `token`, then `done` (answer, citations, `used_sql`, `route_reason`) or `error`. `stream: false` returns one JSON object. |
+| POST | `/prompt_preview` | Debug: the exact prompt for a question |
 
-### Knowledge Graph
+SQL answers include totals/averages computed in code for numeric columns, so
+the model reports numbers rather than adding them up itself.
+
+### Knowledge graph
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/knowledge_graph` | Nodes, unpruned edges, and communities for a `workspace_id` |
-| POST | `/knowledge_graph/build` | Drains the KG extraction queue, then runs clustering/labeling/pruning. This is where the Ollama calls for entity extraction actually happen. |
-| POST | `/kg/rebuild` | Same as above — kept as a separate route for the frontend's "Rebuild Graph" button; there is no functional difference between the two today. |
+| GET | `/knowledge_graph?workspace_id=` | Nodes, unpruned edges, communities, `pending_docs`, `building` |
+| POST | `/knowledge_graph/build?workspace_id=` | Extracts entities from queued docs (one Ollama call each), then clusters/labels/prunes. One build per workspace at a time (409 otherwise). `/kg/rebuild` is an alias. |
 
-## Where the single-user assumptions live
+## Security model
 
-This was built to run as one process on one machine for one person. None
-of the following would work correctly if exposed to multiple concurrent
-users without changes:
+The companion is single-user and local; the threat model is *other web pages
+in the user's browser* (and other devices on the LAN).
 
-- **In-memory job store.** `_ingest_jobs` (`api/main.py`) is a plain Python
-  dict living in process memory. It's lost on restart, never expires (grows
-  unbounded for the life of the process), and isn't shared across worker
-  processes — running `uvicorn` with `--workers > 1` would mean a client
-  polling `/ingest/status/{job_id}` might hit a worker that never saw the
-  job. There's no request-scoped or per-user isolation here at all.
-- **No authentication anywhere.** Every endpoint is open — anything that can
-  reach the port can ingest, query, delete, or clear any workspace's data.
-  `workspace_id` is a logical partition for organizing data, not an access
-  boundary; nothing ties a workspace to an identity or checks that the
-  caller is allowed to touch it.
-- **CORS is wide open** (`allow_origins=["*"]` in `api/main.py`) — fine for
-  a local tool talking to its own bundled frontend, not fine if this ever
-  faces the network.
-- **Global singleton services.** `_embedder`, `_vector_store`, `_generator`,
-  `_struct_db`, etc. are lazily-created module-level singletons, one per
-  process, shared by every request. There's no per-request or per-user
-  instantiation — this is fine for one user's traffic, but means one slow
-  request (e.g. a big batch embed) blocks the shared resources for
-  everyone else hitting the same process.
-- **Shared upload directory, filename-keyed.** `/ingest` writes to
-  `uploads/{original_filename}` with no per-user namespacing. Two
-  different "users" (or the same user re-uploading) uploading a
-  same-named file overwrite each other on disk.
-- **File-based, single-writer stores.** SQLite (`structured_db/structured.db`)
-  and Chroma's persistent client are both local-file-based and assume one
-  writer. They'll work under moderate concurrent reads but weren't chosen
-  or configured for concurrent multi-process writes.
-- **Relative paths resolved against process CWD.** `chroma_persist_dir` and
-  `sqlite_path` in `config.yaml` are relative (`./chroma_db`,
-  `./structured_db/structured.db`). They resolve against whatever directory
-  the server happens to be started from — start it from two different
-  directories and you get two different, silently-diverging databases. (This
-  bit a debugging session during development; always launch from the repo
-  root, as `start_windows.bat` and this README do.)
-- **One Ollama host for everyone.** `config.yaml`'s `ollama.host` is a single
-  shared endpoint — there's no per-user routing to different model servers
-  or API keys.
-- **KG extraction runs in-request, not in a job queue.** `/knowledge_graph/build`
-  makes all its Ollama calls synchronously within that one HTTP request —
-  by design, per this project's constraints (no Celery/Redis, single-user
-  local tool) — but it means the request blocks for as long as extraction +
-  clustering takes (can be minutes on a large workspace), and two
-  simultaneous callers building the same workspace's graph would race each
-  other with no locking.
+- **Bind + Host check.** Listens on `127.0.0.1`. `CompanionGuard`
+  (`api/security.py`) rejects any `Host` other than localhost/127.0.0.1, which
+  blocks DNS-rebinding attacks.
+- **Origin allowlist enforced before routing.** CORS alone only hides
+  responses; browsers still *send* simple cross-site POSTs (forms, multipart).
+  So the guard checks every request: no `Origin` + not cross-site (same-origin
+  GETs, CLI tools) or a local origin (`http://localhost|127.0.0.1:<port>` and
+  the Vite dev server on 5173) → allowed; a configured public-site origin
+  (`server.web_origins`) → allowed only with a valid `X-Shakti-Token`, except
+  `/version`; anything else → 403.
+- **Pairing token.** Random, generated on first run in
+  `<data_dir>/companion_token`. The companion's Settings page builds a
+  `…/#/connect?token=…` link for the public site; the token travels in the URL
+  fragment, which browsers never send to the site's server. `/pair/token` is
+  readable only from local origins.
+- **No file exposure.** Uploads are stored under `<data_dir>/uploads/<file_key>/`
+  and never served; there is no endpoint that ingests an arbitrary path.
+- **Rendering.** The UI renders answers with react-markdown, which doesn't
+  render raw HTML from model output.
+- **Installer launch.** The downloaded Ollama installer runs only if
+  `Get-AuthenticodeSignature` reports `Valid` and the signer starts with
+  `CN=Ollama Inc.`.
 
-None of this is a defect for the tool's actual purpose (one person, one
-machine, local documents). It's the list of what would need to change —
-auth, per-user resource scoping, a real job queue, a database that
-tolerates concurrent writers — before this could be deployed for more
-than one person at a time.
+## Remaining single-user assumptions
+
+- **No accounts.** Anyone using the same Windows session can use the
+  companion. `workspace_id` separates collections of documents; it is not an
+  access boundary.
+- **In-memory job store.** `_ingest_jobs` lives in process memory: lost on
+  restart (finished jobs also expire after an hour). Ingestion itself is
+  durable — only the progress record is lost.
+- **One process, one writer.** SQLite and Chroma's persistent client assume a
+  single companion process. Don't run two companions on the same data dir.
+- **KG builds run inside the HTTP request.** `/knowledge_graph/build` holds the
+  request open while it makes Ollama calls (minutes on a big workspace). A
+  per-workspace lock prevents concurrent builds.
+- **One Ollama host** (`ollama.host`) for everything.
