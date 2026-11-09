@@ -16,7 +16,8 @@ requests==2.32.5
 # PDF (digital + OCR fallback)
 pymupdf==1.26.5           # fitz — fast PDF parsing
 pymupdf4llm==0.0.27       # markdown extraction helper
-pytesseract==0.3.13       # OCR (requires the Tesseract binary separately)
+rapidocr-onnxruntime==1.4.4 # Fast ONNX-based OCR (self-contained, no external binary needed)
+pytesseract==0.3.13       # Optional Tesseract OCR wrapper
 pillow==11.3.0
 
 # Word documents (.docx, .doc)
