@@ -727,6 +727,14 @@ class StructuredDB:
             """, (file_key, workspace_id, file_name, content_hash, size_bytes,
                   ",".join(sorted(source_types)), doc_count, chunk_count, int(legacy)))
 
+    def list_workspaces(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT workspace_id, COUNT(*) AS document_count FROM documents
+                GROUP BY workspace_id ORDER BY workspace_id
+            """).fetchall()
+        return [dict(r) for r in rows]
+
     def list_documents(self, workspace_id: str) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(

@@ -60,7 +60,7 @@ Formatting rules — follow them exactly:
    answer covers more than one distinct sub-topic. Do NOT add headers
    for a short, single-topic answer.
 4. Bold key terms, names, figures, or dates the user would want to scan
-   quickly, e.g. **Indian Ocean**, **$4,200**, **March 14**.
+   quickly (names, amounts, dates). Use only values that appear in the sources.
 5. Cite every factual claim with its source number immediately after the
    claim, e.g. [1] or [1][2]. Do NOT bunch citations at the end of a
    paragraph.
@@ -229,15 +229,66 @@ def _extract_citations(
     return citations
 
 
+_INVOICE_FIELDS = ("vendor", "invoice_number", "invoice_date", "due_date", "total_amount", "currency", "file_name")
+
+
+def flatten_sql_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Ledger rows → their spreadsheet columns; invoice rows → the useful fields."""
+    if isinstance(row.get("row_data"), dict):
+        return {**row["row_data"], "file": row.get("file_name"), "sheet": row.get("sheet_name") or None}
+    return {k: row.get(k) for k in _INVOICE_FIELDS if row.get(k) is not None}
+
+
+def _as_number(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = re.sub(r"[,\s$₹€£]", "", value)
+        if re.fullmatch(r"-?\d+(\.\d+)?", cleaned):
+            return float(cleaned)
+    return None
+
+
+def summarize_numeric_columns(rows: List[Dict[str, Any]]) -> List[str]:
+    """
+    Exact totals computed in code. Small local models add up numbers badly,
+    so the prompt hands them the arithmetic instead of asking for it.
+    Only columns where every non-empty value is numeric are summarized.
+    """
+    lines: List[str] = []
+    columns = {k for r in rows for k in r}
+    for col in sorted(columns):
+        values = [r.get(col) for r in rows if r.get(col) not in (None, "")]
+        numbers = [_as_number(v) for v in values]
+        if not values or any(n is None for n in numbers):
+            continue
+        if re.search(r"(^|_)(id|index|year|number|no)$", col.lower()):
+            continue
+        nums = [n for n in numbers if n is not None]
+        lines.append(
+            f"- {col}: total {sum(nums):,.2f} across {len(nums)} row(s); "
+            f"average {sum(nums) / len(nums):,.2f}; min {min(nums):,.2f}; max {max(nums):,.2f}"
+        )
+    return lines
+
+
 def sql_rows_to_chunks(sql_results: List[Dict[str, Any]], label: str = "structured_db") -> List[Dict[str, Any]]:
     """Wrap SQL rows as a pseudo-chunk so the same prompt/citation path works."""
-    rows_text = json.dumps(sql_results, indent=2, default=str)
+    rows = [flatten_sql_row(r) for r in sql_results]
+    summary = summarize_numeric_columns(rows)
+    files = sorted({str(r.get("file") or r.get("file_name")) for r in rows if r.get("file") or r.get("file_name")})
+    parts = [f"Matching rows from {', '.join(files) or 'the database'} ({len(rows)} row(s))."]
+    if summary:
+        parts.append("Exact totals, already calculated — use these numbers rather than adding rows yourself:\n" + "\n".join(summary))
+    parts.append("Rows:\n" + json.dumps(rows, indent=1, default=str, ensure_ascii=False))
     return [{
         "chunk_id": "sql_result",
-        "text": f"Database query results:\n{rows_text}",
+        "text": "\n\n".join(parts),
         "metadata": {
-            "file_name": label,
-            "location_label": f"{len(sql_results)} database row(s)",
+            "file_name": ", ".join(files) or label,
+            "location_label": f"{len(rows)} matching row(s)",
             "source_type": "structured_db",
             "sender": None,
         },

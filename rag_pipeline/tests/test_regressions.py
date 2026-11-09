@@ -85,3 +85,21 @@ def test_markdown_supported_and_legacy_office_rejected(tmp_path):
     assert envs[0]["raw_metadata"]["full_text"].endswith("Café")
     with pytest.raises(ValueError, match="docx"):
         list(extract_file(str(tmp_path / "old.doc")))
+
+
+# The model was left to add up raw rows (and copied "$4,200" from a prompt example).
+def test_sql_chunk_carries_exact_totals():
+    from rag_pipeline.core.generator import sql_rows_to_chunks
+    rows = [
+        {"row_data": {"Date": "2026-01-14", "Vendor": "BrightPack Supplies", "Amount": "70166.67"}, "file_name": "ledger.csv", "sheet_name": ""},
+        {"row_data": {"Date": "2026-02-14", "Vendor": "BrightPack Supplies", "Amount": 70166.67}, "file_name": "ledger.csv", "sheet_name": ""},
+    ]
+    chunk = sql_rows_to_chunks(rows)[0]
+    assert "Amount: total 140,333.34 across 2 row(s)" in chunk["text"]
+    assert "Date: total" not in chunk["text"]
+    assert chunk["metadata"]["file_name"] == "ledger.csv"
+
+
+def test_system_prompt_has_no_example_figures():
+    from rag_pipeline.core.generator import _SYSTEM_PROMPT
+    assert "$4,200" not in _SYSTEM_PROMPT

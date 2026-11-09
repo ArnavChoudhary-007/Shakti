@@ -513,7 +513,15 @@ def _run_sql(route: Any, workspace_id: str) -> List[Dict[str, Any]]:
             limit=50,
         )
     if route.query_type == "ledger":
-        return db.query_ledger(sheet_name=params.get("sheet_name"), workspace_id=workspace_id, limit=200)
+        rows = db.query_ledger(sheet_name=params.get("sheet_name"), workspace_id=workspace_id, limit=500)
+        vendor = (params.get("vendor") or "").lower()
+        if vendor:
+            # Ledger rows are free-form spreadsheet rows: keep the ones that
+            # mention the vendor anywhere. If none do, the filter was probably
+            # a false positive, so keep everything.
+            matching = [r for r in rows if any(vendor in str(v).lower() for v in r["row_data"].values())]
+            rows = matching or rows
+        return rows
     return []
 
 
@@ -930,6 +938,15 @@ def _backfill_legacy_documents() -> None:
                         size_bytes=0, source_types=sorted(g["types"]), doc_count=0,
                         chunk_count=g["chunks"], legacy=True)
     logger.info("Backfilled %d legacy document row(s).", len(groups))
+
+
+@app.get("/workspaces", tags=["Ingestion"])
+async def list_workspaces():
+    """Workspaces that hold at least one document (plus 'default')."""
+    rows = await asyncio.to_thread(_get_struct_db().list_workspaces)
+    if not any(r["workspace_id"] == "default" for r in rows):
+        rows.insert(0, {"workspace_id": "default", "document_count": 0})
+    return {"workspaces": rows}
 
 
 @app.get("/documents", tags=["Ingestion"])
