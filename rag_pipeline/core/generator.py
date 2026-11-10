@@ -21,6 +21,8 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 import httpx
 
+from rag_pipeline.structured_db.numeric import as_number as _as_number, format_summary, is_identifier
+
 logger = logging.getLogger(__name__)
 
 
@@ -240,18 +242,6 @@ def flatten_sql_row(row: Dict[str, Any]) -> Dict[str, Any]:
     return {k: row.get(k) for k in _INVOICE_FIELDS if row.get(k) is not None}
 
 
-def _as_number(value: Any) -> Optional[float]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        cleaned = re.sub(r"[,\s$₹€£]", "", value)
-        if re.fullmatch(r"-?\d+(\.\d+)?", cleaned):
-            return float(cleaned)
-    return None
-
-
 def summarize_numeric_columns(rows: List[Dict[str, Any]]) -> List[str]:
     """
     Exact totals computed in code. Small local models add up numbers badly,
@@ -265,31 +255,40 @@ def summarize_numeric_columns(rows: List[Dict[str, Any]]) -> List[str]:
         numbers = [_as_number(v) for v in values]
         if not values or any(n is None for n in numbers):
             continue
-        if re.search(r"(^|_)(id|index|year|number|no)$", col.lower()):
+        if is_identifier(col):
             continue
         nums = [n for n in numbers if n is not None]
-        lines.append(
-            f"- {col}: total {sum(nums):,.2f} across {len(nums)} row(s); "
-            f"average {sum(nums) / len(nums):,.2f}; min {min(nums):,.2f}; max {max(nums):,.2f}"
-        )
+        lines.append(format_summary(col, sum(nums), len(nums), sum(nums) / len(nums), min(nums), max(nums)))
     return lines
 
 
-def sql_rows_to_chunks(sql_results: List[Dict[str, Any]], label: str = "structured_db") -> List[Dict[str, Any]]:
+def sql_rows_to_chunks(
+    sql_results: List[Dict[str, Any]], label: str = "structured_db", *,
+    total_count: Optional[int] = None, numeric_summary: Optional[List[str]] = None,
+    file_names: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
     """Wrap SQL rows as a pseudo-chunk so the same prompt/citation path works."""
     rows = [flatten_sql_row(r) for r in sql_results]
-    summary = summarize_numeric_columns(rows)
-    files = sorted({str(r.get("file") or r.get("file_name")) for r in rows if r.get("file") or r.get("file_name")})
-    parts = [f"Matching rows from {', '.join(files) or 'the database'} ({len(rows)} row(s))."]
+    summary = numeric_summary if numeric_summary is not None else summarize_numeric_columns(rows)
+    files = file_names if file_names is not None else sorted({str(r.get("file") or r.get("file_name")) for r in rows if r.get("file") or r.get("file_name")})
+    count = total_count if total_count is not None else len(rows)
+    preview = rows[:50]
+    parts = [f"Matching rows from {', '.join(files) or 'the database'} ({count} row(s))."]
     if summary:
         parts.append("Exact totals, already calculated — use these numbers rather than adding rows yourself:\n" + "\n".join(summary))
-    parts.append("Rows:\n" + json.dumps(rows, indent=1, default=str, ensure_ascii=False))
+    if len(preview) < count:
+        parts.append(
+            f"Only the first {len(preview)} of {count} matching rows are shown. "
+            f"The exact totals above cover all {count} matching rows, not just this preview. "
+            "Tell the user this row list is truncated when listing individual records."
+        )
+    parts.append("Rows:\n" + json.dumps(preview, indent=1, default=str, ensure_ascii=False))
     return [{
         "chunk_id": "sql_result",
         "text": "\n\n".join(parts),
         "metadata": {
             "file_name": ", ".join(files) or label,
-            "location_label": f"{len(rows)} matching row(s)",
+            "location_label": f"{count} matching row(s)" + (f"; showing {len(preview)}" if len(preview) < count else ""),
             "source_type": "structured_db",
             "sender": None,
         },

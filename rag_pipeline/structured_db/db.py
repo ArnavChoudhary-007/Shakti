@@ -21,8 +21,19 @@ import pickle
 import sqlite3
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
+
+from rag_pipeline.structured_db.numeric import as_number, format_summary, is_identifier
+
+
+@dataclass
+class QueryContext:
+    rows: List[Dict[str, Any]] = field(default_factory=list)
+    total_count: int = 0
+    file_names: List[str] = field(default_factory=list)
+    numeric_summary: List[str] = field(default_factory=list)
 
 logger = logging.getLogger(__name__)
 
@@ -355,6 +366,17 @@ class StructuredDB:
         workspace_id: str = "default",
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
+        sql, params = self._invoice_query(
+            vendor, date_from, date_to, min_amount, max_amount, invoice_number, workspace_id
+        )
+        with self._connect() as conn:
+            rows = conn.execute(sql + " LIMIT ?", [*params, limit]).fetchall()
+        return [dict(row) for row in rows]
+
+    def _invoice_query(
+        self, vendor=None, date_from=None, date_to=None, min_amount=None,
+        max_amount=None, invoice_number=None, workspace_id="default",
+    ) -> Tuple[str, List[Any]]:
         conditions: List[str] = ["workspace_id = ?"]
         params: List[Any] = [workspace_id]
 
@@ -378,12 +400,7 @@ class StructuredDB:
             params.append(max_amount)
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        sql = f"SELECT * FROM invoices {where} ORDER BY invoice_date DESC LIMIT ?"
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [dict(r) for r in rows]
+        return f"SELECT * FROM invoices {where} ORDER BY invoice_date DESC", params
 
     def total_invoices(self, vendor: Optional[str] = None, workspace_id: str = "default") -> float:
         """Sum of total_amount, optionally filtered by vendor."""
@@ -427,6 +444,19 @@ class StructuredDB:
         workspace_id: str = "default",
         limit: int = 200,
     ) -> List[Dict[str, Any]]:
+        sql, params = self._ledger_query(doc_id, sheet_name, workspace_id)
+        with self._connect() as conn:
+            rows = conn.execute(sql + " LIMIT ?", [*params, limit]).fetchall()
+        result = []
+        for row in rows:
+            record = dict(row)
+            record["row_data"] = json.loads(record["row_data"])
+            result.append(record)
+        return result
+
+    def _ledger_query(
+        self, doc_id=None, sheet_name=None, workspace_id="default", vendor=None,
+    ) -> Tuple[str, List[Any]]:
         conditions: List[str] = ["workspace_id = ?"]
         params: List[Any] = [workspace_id]
         if doc_id:
@@ -435,17 +465,71 @@ class StructuredDB:
         if sheet_name:
             conditions.append("sheet_name LIKE ?")
             params.append(f"%{sheet_name}%")
+        if vendor:
+            conditions.append(
+                "EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(row_data) THEN row_data "
+                "ELSE rag_json(row_data) END) "
+                "WHERE instr(lower(CAST(value AS TEXT)), lower(?)) > 0)"
+            )
+            params.append(vendor)
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        sql = f"SELECT * FROM ledger_records {where} ORDER BY row_index LIMIT ?"
-        params.append(limit)
+        return f"SELECT * FROM ledger_records {where} ORDER BY row_index", params
+
+    def query_answer_context(
+        self, query_type: str, filters: Dict[str, Any], workspace_id: str = "default", limit: int = 50,
+    ) -> QueryContext:
+        """Aggregate every matching row in SQLite; bound only the row preview."""
+        if query_type == "invoice":
+            sql, params = self._invoice_query(
+                vendor=filters.get("vendor"), date_from=filters.get("date_from"),
+                date_to=filters.get("date_to"), min_amount=filters.get("min_amount"),
+                max_amount=filters.get("max_amount"), invoice_number=filters.get("invoice_number"),
+                workspace_id=workspace_id,
+            )
+            row_json = "json_object('total_amount', total_amount)"
+        elif query_type == "ledger":
+            sql, params = self._ledger_query(
+                sheet_name=filters.get("sheet_name"), workspace_id=workspace_id,
+                vendor=filters.get("vendor"),
+            )
+            row_json = "CASE WHEN json_valid(row_data) THEN row_data ELSE rag_json(row_data) END"
+        else:
+            return QueryContext()
+
+        prefix = f"WITH matching AS ({sql}) "
         with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            d["row_data"] = json.loads(d["row_data"])
-            result.append(d)
-        return result
+            conn.execute("BEGIN")
+            conn.create_function("rag_number", 1, as_number)
+            conn.create_function("rag_json", 1, lambda text: json.dumps(
+                json.loads(text, parse_constant=lambda value: None), allow_nan=False
+            ))
+            total_count = conn.execute(prefix + "SELECT COUNT(*) FROM matching", params).fetchone()[0]
+            files = conn.execute(
+                prefix + "SELECT DISTINCT file_name FROM matching ORDER BY file_name", params
+            ).fetchall()
+            aggregates = conn.execute(prefix + f"""
+                , cells AS (
+                    SELECT cell.key AS column_name, cell.type AS value_type,
+                           rag_number(cell.value) AS number
+                    FROM matching, json_each({row_json}) AS cell
+                    WHERE cell.value IS NOT NULL AND cell.value != ''
+                )
+                SELECT column_name, SUM(number) AS total, COUNT(*) AS count,
+                       AVG(number) AS average, MIN(number) AS minimum, MAX(number) AS maximum
+                FROM cells
+                GROUP BY column_name
+                HAVING COUNT(number) = COUNT(*)
+                   AND SUM(value_type IN ('true', 'false', 'object', 'array')) = 0
+                ORDER BY column_name
+            """, params).fetchall()
+            rows = [dict(row) for row in conn.execute(sql + " LIMIT ?", [*params, limit]).fetchall()]
+        if query_type == "ledger":
+            for row in rows:
+                row["row_data"] = json.loads(row["row_data"])
+        summary = [format_summary(
+            row["column_name"], row["total"], row["count"], row["average"], row["minimum"], row["maximum"]
+        ) for row in aggregates if not is_identifier(row["column_name"])]
+        return QueryContext(rows, total_count, [row["file_name"] for row in files], summary)
 
     def delete_by_file_path(self, file_path: str) -> None:
         """Delete all records associated with a file path."""

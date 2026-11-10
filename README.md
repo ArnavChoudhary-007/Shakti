@@ -97,6 +97,12 @@ Upload all three on the **Documents** page, then ask:
 - *"What is the total amount of expenses paid to BrightPack Supplies in the ledger?"*
   → answered from the spreadsheet rows, with the total computed exactly.
 
+Spreadsheet and invoice totals are calculated in SQLite over **all matching
+rows** in the workspace, before limiting the row preview. The model sees up to
+50 individual rows plus the full count, sums, averages, minima and maxima.
+When rows are omitted, the prompt and citation label identify the truncated
+preview; the aggregates still cover the entire matching set.
+
 ## Releasing
 
 - Push a tag like `v0.2.1`: the **Release** workflow builds the UI, packages

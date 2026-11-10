@@ -71,7 +71,7 @@ from rag_pipeline.core.generator import (
 from rag_pipeline.core.normalizer import Normalizer
 from rag_pipeline.core.chunker import Chunker
 from rag_pipeline.connectors import extract_file
-from rag_pipeline.structured_db.db import StructuredDB
+from rag_pipeline.structured_db.db import QueryContext, StructuredDB
 from rag_pipeline.structured_db.router import QueryRouter
 
 logger = logging.getLogger(__name__)
@@ -498,31 +498,8 @@ def _sse(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
-def _run_sql(route: Any, workspace_id: str) -> List[Dict[str, Any]]:
-    db = _get_struct_db()
-    params = route.sql_params
-    if route.query_type == "invoice":
-        return db.query_invoices(
-            vendor=params.get("vendor"),
-            date_from=params.get("date_from"),
-            date_to=params.get("date_to"),
-            min_amount=params.get("min_amount"),
-            max_amount=params.get("max_amount"),
-            invoice_number=params.get("invoice_number"),
-            workspace_id=workspace_id,
-            limit=50,
-        )
-    if route.query_type == "ledger":
-        rows = db.query_ledger(sheet_name=params.get("sheet_name"), workspace_id=workspace_id, limit=500)
-        vendor = (params.get("vendor") or "").lower()
-        if vendor:
-            # Ledger rows are free-form spreadsheet rows: keep the ones that
-            # mention the vendor anywhere. If none do, the filter was probably
-            # a false positive, so keep everything.
-            matching = [r for r in rows if any(vendor in str(v).lower() for v in r["row_data"].values())]
-            rows = matching or rows
-        return rows
-    return []
+def _run_sql(route: Any, workspace_id: str) -> QueryContext:
+    return _get_struct_db().query_answer_context(route.query_type, route.sql_params, workspace_id)
 
 
 async def _gather_context(req: QueryRequest, query_text: str):
@@ -533,9 +510,12 @@ async def _gather_context(req: QueryRequest, query_text: str):
     """
     route = _get_router().route(query_text)
     if route.use_sql:
-        rows = await asyncio.to_thread(_run_sql, route, req.workspace_id)
-        if rows:
-            return sql_rows_to_chunks(rows), True, route
+        context = await asyncio.to_thread(_run_sql, route, req.workspace_id)
+        if context.total_count:
+            return sql_rows_to_chunks(
+                context.rows, total_count=context.total_count, numeric_summary=context.numeric_summary,
+                file_names=context.file_names,
+            ), True, route
         # SQL found nothing → fall back to document search below.
 
     filters = {**(req.filters or {}), "workspace_id": req.workspace_id}
