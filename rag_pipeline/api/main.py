@@ -1009,48 +1009,83 @@ async def delete_document(file_key: str):
 # ── /knowledge_graph ──────────────────────────────────────────
 
 _kg_locks: Dict[str, asyncio.Lock] = {}
+# Per-workspace build job, reported by GET /knowledge_graph. In memory only.
+_kg_jobs: Dict[str, Dict[str, Any]] = {}
+_kg_tasks: set = set()   # strong references so running builds aren't garbage-collected
+
+
+def _kg_job(workspace_id: str) -> Dict[str, Any]:
+    return _kg_jobs.get(workspace_id) or {"state": "idle", "stage": None, "done": 0, "total": 0, "error": None}
 
 
 @app.get("/knowledge_graph", tags=["Knowledge Graph"])
 async def get_knowledge_graph(workspace_id: str = Query("default")):
-    """Returns the extracted Knowledge Graph nodes, unpruned edges, and communities."""
-    graph = await asyncio.to_thread(_get_struct_db().get_knowledge_graph, workspace_id=workspace_id)
-    with _get_struct_db()._connect() as conn:
-        pending = conn.execute(
-            "SELECT COUNT(*) FROM kg_pending_docs WHERE workspace_id = ?", (workspace_id,)
-        ).fetchone()[0]
-    return {**graph, "pending_docs": pending, "building": _kg_locks.get(workspace_id, asyncio.Lock()).locked()}
+    """Nodes, unpruned edges and communities, plus the queue and build progress."""
+    def load():
+        db = _get_struct_db()
+        graph = db.get_knowledge_graph(workspace_id=workspace_id)
+        with db._connect() as conn:
+            pending = conn.execute(
+                "SELECT COUNT(DISTINCT source_doc) FROM kg_pending_docs WHERE workspace_id = ?", (workspace_id,)
+            ).fetchone()[0]
+        return graph, pending
+
+    graph, pending = await asyncio.to_thread(load)
+    lock = _kg_locks.get(workspace_id)
+    return {**graph, "pending_docs": pending, "building": bool(lock and lock.locked()), "build": _kg_job(workspace_id)}
 
 
-@app.post("/knowledge_graph/build", tags=["Knowledge Graph"])
-@app.post("/kg/rebuild", tags=["Knowledge Graph"], include_in_schema=False)
+async def _run_kg_build(workspace_id: str, min_edge_weight: int, lock: asyncio.Lock) -> None:
+    job = _kg_jobs[workspace_id]
+
+    def progress(stage: str, done: int, total: int) -> None:
+        job.update(stage=stage, done=done, total=total)
+
+    ollama_cfg = _CONFIG.get("ollama", {})
+    try:
+        await build_graph_layout(
+            workspace_id=workspace_id,
+            db=_get_struct_db(),
+            host=_OLLAMA_HOST,
+            model=user_settings.get_chat_model(_CONFIG),
+            min_edge_weight=min_edge_weight,
+            timeout=float(ollama_cfg.get("request_timeout", 300)),
+            keep_alive=ollama_cfg.get("keep_alive", "30m"),
+            num_ctx=int(ollama_cfg.get("num_ctx", 8192)),
+            on_progress=progress,
+        )
+        job.update(state="done")
+    except GenerationError as e:
+        job.update(state="error", error=str(e))
+    except Exception:
+        logger.exception("Failed to build the knowledge graph")
+        job.update(state="error", error="Building the graph failed unexpectedly. See shakti.log for details.")
+    finally:
+        job["finished_at"] = time.time()
+        lock.release()
+
+
+@app.post("/knowledge_graph/build", tags=["Knowledge Graph"], status_code=202)
+@app.post("/kg/rebuild", tags=["Knowledge Graph"], include_in_schema=False, status_code=202)
 async def build_knowledge_graph(
     workspace_id: str = Query("default"),
     min_edge_weight: int = Query(1, description="Minimum occurrences to keep an edge"),
 ):
     """
-    Extracts entities from newly ingested documents, then runs community
-    detection, centrality, LLM labeling, and edge pruning.
+    Starts extracting entities from newly ingested documents, then community
+    detection, centrality, labelling and pruning — in the background. Returns
+    at once (202); poll GET /knowledge_graph for `build` progress.
     """
     lock = _kg_locks.setdefault(workspace_id, asyncio.Lock())
     if lock.locked():
         raise HTTPException(status_code=409, detail="The graph for this workspace is already being built.")
-    async with lock:
-        try:
-            await build_graph_layout(
-                workspace_id=workspace_id,
-                db=_get_struct_db(),
-                host=_OLLAMA_HOST,
-                model=user_settings.get_chat_model(_CONFIG),
-                min_edge_weight=min_edge_weight,
-                timeout=float(_CONFIG.get("ollama", {}).get("request_timeout", 300)),
-            )
-        except GenerationError as error:
-            raise HTTPException(status_code=502, detail=str(error))
-        except Exception as e:
-            logger.error(f"Failed to build graph layout: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-    return {"status": "success", "message": "Graph built."}
+    await lock.acquire()      # released by _run_kg_build when it finishes
+    _kg_jobs[workspace_id] = {"state": "running", "stage": "starting", "done": 0, "total": 0,
+                              "error": None, "started_at": time.time()}
+    task = asyncio.create_task(_run_kg_build(workspace_id, min_edge_weight, lock))
+    _kg_tasks.add(task)
+    task.add_done_callback(_kg_tasks.discard)
+    return _kg_jobs[workspace_id]
 
 
 # ── /prompt_preview ───────────────────────────────────────────

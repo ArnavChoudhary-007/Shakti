@@ -110,8 +110,19 @@ export type GraphData = {
   nodes: { id: string; label: string; type: string | null; description: string | null; community: number | null; centrality: number | null }[];
   edges: { source: string; target: string; relation: string; description: string | null; source_doc: string | null }[];
   communities: { id: number; label: string }[];
+  /** Documents waiting to be added to the graph. */
   pending_docs: number;
   building: boolean;
+  /** Missing on older companions. */
+  build?: GraphBuild;
+};
+
+export type GraphBuild = {
+  state: "idle" | "running" | "done" | "error";
+  stage: "starting" | "extracting" | "clustering" | "labelling" | null;
+  done: number;
+  total: number;
+  error: string | null;
 };
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
@@ -201,7 +212,7 @@ export function createApi(conn: Connection) {
     ingestStatus: (jobId: string) => request<IngestJob>(`/ingest/status/${jobId}`),
 
     graph: (workspace: string) => request<GraphData>(`/knowledge_graph?workspace_id=${encodeURIComponent(workspace)}`),
-    buildGraph: (workspace: string) => request<{ status: string }>(`/knowledge_graph/build?workspace_id=${encodeURIComponent(workspace)}`, json("POST")),
+    buildGraph: (workspace: string) => request<GraphBuild>(`/knowledge_graph/build?workspace_id=${encodeURIComponent(workspace)}`, json("POST")),
 
     /** Streams an answer. Server-Sent Events: status, token, done, error. */
     async ask(

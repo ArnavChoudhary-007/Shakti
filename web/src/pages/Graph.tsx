@@ -2,8 +2,8 @@ import { useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "r
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationNodeDatum } from "d3-force";
 import { Network, RefreshCw, X } from "lucide-react";
-import { Alert, Badge, Button, Card, EmptyState, PageHeader, Spinner } from "@/components/ui";
-import type { GraphData } from "@/lib/api";
+import { Alert, Badge, Button, Card, EmptyState, PageHeader, Progress, Spinner } from "@/components/ui";
+import type { GraphBuild, GraphData } from "@/lib/api";
 import { useApi } from "@/lib/connection";
 import { useWorkspace } from "@/lib/workspace";
 
@@ -48,6 +48,27 @@ function useLayout(data: GraphData | undefined) {
   }, [data]);
 }
 
+const STAGE_TEXT: Record<string, string> = {
+  starting: "Starting…",
+  extracting: "Reading your documents with the AI model to find entities and relationships",
+  clustering: "Grouping related entities",
+  labelling: "Naming the groups",
+};
+
+function BuildProgress({ build }: { build: GraphBuild | undefined }) {
+  const stage = build?.stage ?? "starting";
+  const counted = build && build.total > 0 && (stage === "extracting" || stage === "labelling");
+  return (
+    <Alert tone="neutral">
+      <div className="space-y-2">
+        <p className="flex items-center gap-2"><Spinner /> {STAGE_TEXT[stage] ?? "Building…"}{counted ? ` (${build.done} of ${build.total})` : "…"}</p>
+        {counted && <Progress value={build.done / build.total} />}
+        <p className="text-xs text-zinc-500">This runs on your PC and can take a few minutes. You can use other pages meanwhile.</p>
+      </div>
+    </Alert>
+  );
+}
+
 const radius = (n: Node) => 4 + Math.min(14, Math.sqrt(n.degree) * 3);
 const color = (n: Node) => (n.community == null ? "#71717a" : PALETTE[n.community % PALETTE.length]);
 
@@ -55,7 +76,12 @@ export default function GraphPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const { workspace } = useWorkspace();
-  const graph = useQuery({ queryKey: ["graph", workspace], queryFn: () => api.graph(workspace) });
+  const graph = useQuery({
+    queryKey: ["graph", workspace],
+    queryFn: () => api.graph(workspace),
+    // Poll while a build runs in the background; the graph appears when it finishes.
+    refetchInterval: (q) => (q.state.data?.building ? 1500 : false),
+  });
   const build = useMutation({
     mutationFn: () => api.buildGraph(workspace),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["graph", workspace] }),
@@ -68,6 +94,7 @@ export default function GraphPage() {
   const communities = new Map((graph.data?.communities ?? []).map((c) => [c.id, c.label]));
   const pending = graph.data?.pending_docs ?? 0;
   const building = build.isPending || graph.data?.building;
+  const buildState = graph.data?.build;
 
   const selectedNode = layout?.nodes.find((n) => n.id === selected) ?? null;
   const neighbours = selectedNode
@@ -105,14 +132,13 @@ export default function GraphPage() {
       {pending > 0 && !building && (
         <div className="mb-4">
           <Alert tone="brand">
-            {pending} new document part{pending === 1 ? "" : "s"} haven't been added to the graph yet. Click <strong>{layout ? "Update graph" : "Build graph"}</strong> — it can take a few minutes on a large workspace.
+            {pending} document{pending === 1 ? " hasn't" : "s haven't"} been added to the graph yet. Click <strong>{layout ? "Update graph" : "Build graph"}</strong> — it can take a few minutes on a large workspace.
           </Alert>
         </div>
       )}
-      {building && (
-        <div className="mb-4">
-          <Alert tone="neutral">Reading your documents with the AI model to find entities and relationships. Keep this tab open…</Alert>
-        </div>
+      {building && <div className="mb-4"><BuildProgress build={buildState} /></div>}
+      {!building && buildState?.state === "error" && (
+        <div className="mb-4"><Alert tone="danger" title="The graph wasn't fully built">{buildState.error}</Alert></div>
       )}
       {build.error && <div className="mb-4"><Alert tone="danger">{(build.error as Error).message}</Alert></div>}
 

@@ -43,7 +43,7 @@ def mock_ollama(monkeypatch):
 
 @pytest.mark.parametrize("failure", [
     "offline", "timeout", "missing_model", "http_error", "bad_json", "bad_envelope",
-    "wrong_shape", "invalid_edge", "partial_edges",
+    "wrong_shape", "invalid_edge",
 ])
 def test_failed_extraction_keeps_job_and_can_retry_without_upload(database, mock_ollama, failure):
     database.add_kg_pending_doc("doc", "work", "notes.txt", "text", "Alice builds Shakti.")
@@ -118,19 +118,113 @@ def test_failed_graph_save_keeps_job(database, mock_ollama, monkeypatch):
     assert len(database.get_pending_kg_docs("work")) == 1
 
 
-def test_graph_build_endpoint_reports_retryable_failure(monkeypatch):
+def _wait_for_build(client, workspace, timeout=5.0):
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        body = client.get(f"/knowledge_graph?workspace_id={workspace}").json()
+        if body["build"]["state"] != "running":
+            return body
+        time.sleep(0.02)
+    raise AssertionError("graph build did not finish")
+
+
+def test_graph_build_runs_in_background_and_reports_retryable_failure(monkeypatch, tmp_path):
     received = []
 
     async def fail_build(**kwargs):
         received.append(kwargs)
+        kwargs["on_progress"]("extracting", 1, 3)
         raise GenerationError("Jobs are still queued. Build again to retry.")
 
+    db = StructuredDB(str(tmp_path / "g.db"))
     monkeypatch.setattr(api_main, "build_graph_layout", fail_build)
-    monkeypatch.setattr(api_main, "_get_struct_db", lambda: None)
+    monkeypatch.setattr(api_main, "_get_struct_db", lambda: db)
     monkeypatch.setattr(api_main, "_kg_locks", {})
-    monkeypatch.setitem(api_main._CONFIG, "ollama", {"request_timeout": 123})
-    response = TestClient(api_main.app).post("/knowledge_graph/build?workspace_id=work")
-    assert response.status_code == 502
-    assert "still queued" in response.json()["detail"]
+    monkeypatch.setattr(api_main, "_kg_jobs", {})
+    monkeypatch.setitem(api_main._CONFIG, "ollama", {"request_timeout": 123, "keep_alive": "5m", "num_ctx": 4096})
+    with TestClient(api_main.app) as client:
+        response = client.post("/knowledge_graph/build?workspace_id=work")
+        assert response.status_code == 202          # returns at once; the build runs in the background
+        body = _wait_for_build(client, "work")
+    assert body["build"]["state"] == "error"
+    assert "still queued" in body["build"]["error"]
+    assert (body["build"]["done"], body["build"]["total"]) == (1, 3)
+    assert body["building"] is False
     assert received[0]["timeout"] == 123.0
+    assert (received[0]["keep_alive"], received[0]["num_ctx"]) == ("5m", 4096)
     assert not api_main._kg_locks["work"].locked()
+
+
+def test_second_build_while_running_is_rejected(monkeypatch, tmp_path):
+    import threading
+    release = threading.Event()
+
+    async def slow_build(**kwargs):
+        while not release.is_set():
+            await asyncio.sleep(0.01)
+
+    db = StructuredDB(str(tmp_path / "g.db"))
+    monkeypatch.setattr(api_main, "build_graph_layout", slow_build)
+    monkeypatch.setattr(api_main, "_get_struct_db", lambda: db)
+    monkeypatch.setattr(api_main, "_kg_locks", {})
+    monkeypatch.setattr(api_main, "_kg_jobs", {})
+    with TestClient(api_main.app) as client:
+        assert client.post("/knowledge_graph/build?workspace_id=w").status_code == 202
+        assert client.post("/knowledge_graph/build?workspace_id=w").status_code == 409
+        assert client.get("/knowledge_graph?workspace_id=w").json()["building"] is True
+        release.set()
+        assert _wait_for_build(client, "w")["build"]["state"] == "done"
+
+
+def test_a_files_queued_parts_are_packed_into_few_calls(database, mock_ollama):
+    # A chat export queues one row per message window; 60 rows of ~600 chars
+    # used to mean 60 model calls.
+    for i in range(60):
+        database.add_kg_pending_doc(f"chat-{i}", "work", "chat.txt", "whatsapp", f"[{i}] " + "x" * 600)
+    database.add_kg_pending_doc("memo", "work", "memo.pdf", "pdf", "Alice builds Shakti.")
+    requests = mock_ollama(lambda request: httpx.Response(200, json={"response": json.dumps([EDGE])}))
+    progress = []
+    asyncio.run(_extract_pending_kg("work", database, "http://ollama.test", "model",
+                                    keep_alive="30m", num_ctx=8192,
+                                    on_progress=lambda *a: progress.append(a)))
+    assert len(requests) == 6          # 5 for the chat (36k chars / 8k) + 1 for the memo
+    body = json.loads(requests[0].content)
+    assert body["keep_alive"] == "30m" and body["options"]["num_ctx"] == 8192
+    assert progress[-1] == ("extracting", 6, 6)
+    assert database.get_pending_kg_docs("work") == []
+
+
+def test_pack_pieces_bounds_calls_but_keeps_start_and_end():
+    from rag_pipeline.core.kg_builder import pack_pieces
+    texts = [f"part{i:03d} " + "y" * 990 for i in range(200)]   # ~200k chars
+    pieces = pack_pieces(texts, piece_chars=8000, max_pieces=12)
+    assert len(pieces) == 12
+    assert all(len(p) <= 8000 for p in pieces)
+    assert pieces[0].startswith("part000") and "part199" in pieces[-1]
+    assert pack_pieces(["short"]) == ["short"]
+    assert pack_pieces(["", "  "]) == []
+
+
+def test_output_is_capped_and_a_truncated_answer_keeps_complete_edges(mock_ollama):
+    second = {"source": "Bob", "target": "Shakti", "relation": "tests"}
+    cut = json.dumps({"edges": [EDGE, second]})[:-25]          # cut inside the second edge
+    requests = mock_ollama(lambda request: httpx.Response(200, json={"response": cut, "done_reason": "length"}))
+    assert asyncio.run(extract_kg_relationships("notes", host="http://ollama.test")) == [EDGE]
+    assert json.loads(requests[0].content)["options"]["num_predict"] == generator_module.KG_MAX_OUTPUT_TOKENS
+
+
+def test_invalid_json_that_was_not_truncated_still_fails(mock_ollama):
+    cut = json.dumps([EDGE, EDGE])[:-5]
+    mock_ollama(lambda request: httpx.Response(200, json={"response": cut, "done_reason": "stop"}))
+    with pytest.raises(GenerationError):
+        asyncio.run(extract_kg_relationships("notes", host="http://ollama.test"))
+
+
+def test_malformed_edges_are_dropped_and_the_good_ones_kept(database, mock_ollama):
+    database.add_kg_pending_doc("doc", "work", "notes.txt", "text", "Alice builds Shakti.")
+    answer = json.dumps([EDGE, {"source": "Alice"}, {"source": "A", "target": "B", "relation": 7}])
+    mock_ollama(lambda request: httpx.Response(200, json={"response": answer}))
+    asyncio.run(_extract_pending_kg("work", database, "http://ollama.test", "model"))
+    assert database.get_pending_kg_docs("work") == []
+    assert len(database.get_knowledge_graph("work")["edges"]) == 1

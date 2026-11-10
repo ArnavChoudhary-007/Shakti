@@ -52,6 +52,13 @@ representative benchmark). Ingestion now only writes rows to `kg_pending_docs`;
 the actual LLM extraction happens when `/knowledge_graph/build` is called, batched
 with the clustering step that already ran there.
 
+At build time a file's queued pieces are packed into prompts of up to 8,000
+characters (at most 12 per file, evenly sampled beyond that), so a 500-message
+chat costs a handful of calls instead of 500. Answers are capped at 1,024 tokens
+(small models otherwise repeat edges until the context fills); a capped answer
+keeps the edges it completed, and malformed edges are dropped rather than
+failing the file. A file stays queued until all its pieces succeed.
+
 ## Component map
 
 ```
@@ -143,8 +150,8 @@ the model reports numbers rather than adding them up itself.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/knowledge_graph?workspace_id=` | Nodes, unpruned edges, communities, `pending_docs`, `building` |
-| POST | `/knowledge_graph/build?workspace_id=` | Extracts entities from queued docs (one Ollama call each), then clusters/labels/prunes. One build per workspace at a time (409 otherwise). `/kg/rebuild` is an alias. |
+| GET | `/knowledge_graph?workspace_id=` | Nodes, unpruned edges, communities, `pending_docs` (files waiting), `building`, and `build` progress (`state`, `stage`: extracting / clustering / labelling, `done`/`total`, `error`) |
+| POST | `/knowledge_graph/build?workspace_id=` | Starts a background build and returns 202 at once: extracts entities from queued files, then clusters (in a worker thread), labels the larger communities and prunes. One build per workspace at a time (409 otherwise). `/kg/rebuild` is an alias. |
 
 ## Security model
 
@@ -184,9 +191,9 @@ in the user's browser* (and other devices on the LAN).
   durable — only the progress record is lost.
 - **One process, one writer.** SQLite and Chroma's persistent client assume a
   single companion process. Don't run two companions on the same data dir.
-- **KG builds run inside the HTTP request.** `/knowledge_graph/build` holds the
-  request open while it makes Ollama calls (minutes on a big workspace). A
-  per-workspace lock prevents concurrent builds.
+- **KG build progress is in memory.** A restart mid-build loses the progress
+  record; the queue itself is durable, so the next build resumes the files
+  that weren't finished.
 - **One Ollama host** (`ollama.host`) for everything.
 
 ## Model loading

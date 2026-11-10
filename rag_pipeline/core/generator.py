@@ -565,9 +565,36 @@ def _sample_text(text: str, source_type: str, max_tokens: int = 2000) -> str:
             end_chunk
         )
 
+KG_MAX_OUTPUT_TOKENS = 1024
+
+
+def _salvage_truncated_edges(raw: str) -> Optional[List[Any]]:
+    """
+    Parse a JSON array (or {"edges": [...]}) that was cut off by the output
+    cap, keeping every object completed before the cut. None if nothing usable.
+    """
+    start = raw.find("[")
+    if start < 0:
+        return None
+    end = len(raw)
+    for _ in range(200):
+        end = raw.rfind("}", start, end)
+        if end < 0:
+            return None
+        try:
+            data = json.loads(raw[start:end + 1] + "]")
+            if isinstance(data, list) and data:
+                return data
+        except ValueError:
+            pass
+    return None
+
+
 async def extract_kg_relationships(
     text: str, model: str = "llama3.2", host: str = "http://localhost:11434",
     source_type: str = "doc", timeout: float = 300.0,
+    keep_alive: Optional[str] = None, num_ctx: Optional[int] = None,
+    max_output_tokens: int = KG_MAX_OUTPUT_TOKENS,
 ) -> List[Dict[str, Any]]:
     """
     Extracts knowledge graph entities and relationships from the provided text.
@@ -587,20 +614,27 @@ async def extract_kg_relationships(
         f"Text:\n{sampled_text}"
     )
     
+    # Cap the answer: in JSON mode small models can repeat edges until the
+    # context is full, which on a CPU means minutes, then a timeout.
+    options: Dict[str, Any] = {"temperature": 0.0, "num_predict": max_output_tokens}
+    if num_ctx:
+        options["num_ctx"] = num_ctx   # Ollama silently truncates beyond its (smaller) default
+    body: Dict[str, Any] = {"model": model, "prompt": prompt, "stream": False, "options": options, "format": "json"}
+    if keep_alive:
+        body["keep_alive"] = keep_alive   # keep the model loaded between the build's calls
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
-            resp = await client.post(
-                f"{host}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"temperature": 0.0},
-                    "format": "json"
-                }
-            )
+            resp = await client.post(f"{host}/api/generate", json=body)
             resp.raise_for_status()
-            data = json.loads(resp.json()["response"])
+            payload = resp.json()
+            raw = payload["response"]
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                # Hit the output cap mid-answer: keep the edges that were complete.
+                data = _salvage_truncated_edges(raw) if payload.get("done_reason") == "length" else None
+                if data is None:
+                    raise
     except httpx.HTTPStatusError as error:
         raise GenerationError(_describe_status_error(error, model)) from error
     except httpx.RequestError as error:
@@ -613,15 +647,21 @@ async def extract_kg_relationships(
             data = data["edges"]
         elif all(key in data for key in ("source", "target", "relation")):
             data = [data]
-    if not isinstance(data, list) or any(
-        not isinstance(edge, dict) or any(
-            not isinstance(edge.get(key), str) or not edge[key].strip()
-            for key in ("source", "target", "relation")
-        ) or any(
-            key in edge and not isinstance(edge[key], str)
-            for key in ("source_type", "target_type")
-        )
-        for edge in data
-    ):
+    if not isinstance(data, list):
+        logger.warning("KG extraction: unexpected answer shape: %.300s", raw)
         raise GenerationError("Ollama returned invalid relationship data. Build the graph again to retry.")
-    return data
+    edges = [edge for edge in data if _is_valid_edge(edge)]
+    if data and not edges:
+        logger.warning("KG extraction: no usable edges in answer: %.300s", raw)
+        raise GenerationError("Ollama returned invalid relationship data. Build the graph again to retry.")
+    if len(edges) < len(data):
+        # Small models often get one edge wrong; keep the good ones rather than
+        # rejecting the whole file (which would then fail again on every retry).
+        logger.info("KG extraction: dropped %d malformed edge(s) of %d", len(data) - len(edges), len(data))
+    return edges
+
+
+def _is_valid_edge(edge: Any) -> bool:
+    return isinstance(edge, dict) and all(
+        isinstance(edge.get(key), str) and edge[key].strip() for key in ("source", "target", "relation")
+    ) and all(not (key in edge and not isinstance(edge[key], str)) for key in ("source_type", "target_type"))
