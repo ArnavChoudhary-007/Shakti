@@ -24,3 +24,6 @@ credentials/
 # Built web UI (produced by `npm run build` in web/)
 rag_pipeline/webui/
 dist/
+
+# Logs (contain local paths)
+*.log
