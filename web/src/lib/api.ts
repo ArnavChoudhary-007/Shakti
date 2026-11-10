@@ -9,6 +9,12 @@ export type InstallProgress = {
   error: string | null;
 };
 
+export type SearchModelsStatus = {
+  ready: boolean;
+  models: { kind: "embedding" | "reranker"; name: string; repo: string; downloaded: boolean; loaded: boolean }[];
+  job: { state: "idle" | "downloading" | "loading" | "ready" | "error"; downloaded: number; total: number | null; error: string | null };
+};
+
 export type SetupStatus = {
   platform: "windows" | "macos" | "linux";
   installed: boolean;
@@ -21,7 +27,12 @@ export type SetupStatus = {
   models: string[];
   chat_model: string;
   chat_model_installed: boolean;
+  /** Missing on companions older than 0.2.0 — treat as ready. */
+  search_models?: SearchModelsStatus;
 };
+
+/** Embedding + reranker models downloaded (older companions don't report it). */
+export const searchModelsReady = (s: SetupStatus) => s.search_models?.ready ?? true;
 
 export type InstalledModel = {
   name: string;
@@ -159,6 +170,7 @@ export function createApi(conn: Connection) {
     setupStatus: () => request<SetupStatus>("/setup/status"),
     startOllama: () => request<{ status: string }>("/setup/ollama/start", json("POST")),
     installOllama: () => request<InstallProgress>("/setup/ollama/install", json("POST")),
+    prepareSearchModels: () => request<SearchModelsStatus["job"]>("/setup/search-models", json("POST")),
 
     recommendations: () => request<Recommendations>("/system/recommendations"),
     deleteModel: (name: string) => request<{ status: string }>(`/ollama/models/${encodeURIComponent(name)}`, { method: "DELETE" }),

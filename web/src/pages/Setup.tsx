@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Download, ExternalLink, Play, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, Play, RotateCcw, ShieldCheck } from "lucide-react";
 import { ModelPicker } from "@/components/ModelPicker";
 import { Alert, Button, Card, PageHeader, Progress, Spinner } from "@/components/ui";
-import type { SetupStatus } from "@/lib/api";
+import { searchModelsReady, type SearchModelsStatus, type SetupStatus } from "@/lib/api";
 import { useApi } from "@/lib/connection";
 import { useSetupStatus } from "@/lib/queries";
 import { cn, formatBytes } from "@/lib/utils";
@@ -99,6 +99,44 @@ function OllamaStep({ status }: { status: SetupStatus }) {
   );
 }
 
+function SearchModelsStep({ status }: { status: SearchModelsStatus }) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const prepare = useMutation({
+    mutationFn: api.prepareSearchModels,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["setup-status"] }),
+  });
+  const job = status.job;
+  const busy = job.state === "downloading" || job.state === "loading" || prepare.isPending;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        Shakti uses two small models to find the right passages in your documents. They're downloaded once (about
+        180 MB) and then run offline on your PC.
+      </p>
+      {job.state === "downloading" && (
+        <div className="space-y-1.5">
+          <Progress value={job.total ? job.downloaded / job.total : null} />
+          <p className="text-xs text-zinc-500">
+            Downloading… {formatBytes(job.downloaded)}
+            {job.total ? ` of ${formatBytes(job.total)}` : ""}
+          </p>
+        </div>
+      )}
+      {job.state === "loading" && <p className="flex items-center gap-2 text-sm"><Spinner /> Loading the models…</p>}
+      {job.state === "error" && <Alert tone="danger" title="Download didn't finish">{job.error}</Alert>}
+      {prepare.error && <Alert tone="danger">{(prepare.error as Error).message}</Alert>}
+      {!busy && (
+        <Button onClick={() => prepare.mutate()}>
+          {job.state === "error" ? <RotateCcw className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+          {job.state === "error" ? "Try again" : "Download search models"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export default function SetupPage() {
   const { data: status, isLoading, error } = useSetupStatus();
 
@@ -107,10 +145,11 @@ export default function SetupPage() {
 
   const ollamaDone = status.running;
   const modelDone = ollamaDone && status.chat_model_installed;
+  const searchDone = searchModelsReady(status);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-      <PageHeader title="Set up Shakti" description="Two quick steps and you can start asking questions about your documents." />
+      <PageHeader title="Set up Shakti" description="A few quick steps and you can start asking questions about your documents." />
       <div className="space-y-4">
         <Step n={1} title={ollamaDone ? `Ollama is running${status.version ? ` (v${status.version})` : ""}` : "Install Ollama"} done={ollamaDone} active={!ollamaDone}>
           <OllamaStep status={status} />
@@ -118,7 +157,13 @@ export default function SetupPage() {
         <Step n={2} title={modelDone ? `Using ${status.chat_model}` : "Choose an AI model"} done={modelDone} active={ollamaDone}>
           <ModelPicker compact />
         </Step>
-        <Step n={3} title="Add your documents" done={false} active={modelDone}>
+        {status.search_models && (
+          // Independent of Ollama, so it can download while a chat model does.
+          <Step n={3} title={searchDone ? "Document search is ready" : "Download the search models"} done={searchDone} active={!searchDone}>
+            <SearchModelsStep status={status.search_models} />
+          </Step>
+        )}
+        <Step n={status.search_models ? 4 : 3} title="Add your documents" done={false} active={modelDone && searchDone}>
           <div className="flex flex-wrap items-center gap-3">
             <p className="flex-1 text-sm text-zinc-600 dark:text-zinc-400">
               You're all set. Upload PDFs, Word files, spreadsheets, emails, chat exports or audio, then ask anything about them.
