@@ -85,7 +85,11 @@ rag_pipeline/
 ├── structured_db/
 │   ├── db.py            SQLite: invoices, ledger rows, KG nodes/edges/
 │   │                    communities, KG extraction queue, sync state
-│   └── router.py        Decides whether a query hits SQL or the vector store
+│   ├── router.py        Decides whether a query hits SQL or the vector store
+│   │                    (and turns "between X and Y" / "in March 2024" into
+│   │                    ISO date bounds)
+│   └── dates.py         Free-text dates -> ISO; invoices store invoice_date_iso
+│                        and are filtered/sorted on it, not on the text
 ├── api/main.py          FastAPI app — all endpoints (see below)
 ├── api/security.py      CompanionGuard: Host check, origin allowlist, pairing token
 ├── core/ollama_setup.py Detect / start / install Ollama

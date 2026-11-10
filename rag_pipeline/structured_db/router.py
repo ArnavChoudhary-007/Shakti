@@ -19,6 +19,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional, Pattern
 
+from rag_pipeline.structured_db.dates import extract_date_range
+
 # Aggregate / amount signals. Extended by config structured_db.sql_router_keywords.
 _DEFAULT_AGGREGATE_KEYWORDS = {
     "total", "sum", "how much", "how many", "count", "average", "minimum",
@@ -49,9 +51,8 @@ _INVOICE_NO_PATTERN = re.compile(
     r"\b(INV[-\s]?\d{3,}[-\d]*|[A-Z]{2,}-\d{4}-[\d-]+)\b",
     re.IGNORECASE,
 )
-_DATE_RANGE_PATTERN = re.compile(
-    r"between\s+([\w\s,]+?)\s+and\s+([\w\s,]+?)(?:\s|$|\?)",
-    re.IGNORECASE,
+_MONTH_WORD = re.compile(
+    r"^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?$", re.IGNORECASE,
 )
 _AMOUNT_PATTERN = re.compile(
     r"(more than|greater than|over|above|less than|under|below)\s*[$₹€£]?\s*([\d,]+(?:\.\d+)?)",
@@ -84,6 +85,8 @@ class QueryRouter:
         self.aggregate_patterns = _word_patterns(_DEFAULT_AGGREGATE_KEYWORDS | {k.lower() for k in extra})
         self.invoice_patterns = _word_patterns(_INVOICE_NOUNS)
         self.ledger_patterns = _word_patterns(_LEDGER_NOUNS)
+        # 05/03/2024: 5 March (day first) or May 3 (month first)?
+        self.day_first = bool(cfg.get("structured_db", {}).get("dates_day_first", False))
 
     def route(self, query: str) -> QueryRoute:
         q_lower = query.lower().strip()
@@ -115,14 +118,17 @@ class QueryRouter:
         query_type = "invoice" if invoice_nouns else "ledger"
         sql_params: Dict[str, Any] = {}
 
-        m = _VENDOR_PATTERN.search(query)
-        if m:
-            sql_params["vendor"] = m.group(1).strip().rstrip(".,?")
+        for m in _VENDOR_PATTERN.finditer(query):
+            # "from January 2024" is a date, not a vendor called January.
+            if not _MONTH_WORD.match(m.group(1).split()[0]):
+                sql_params["vendor"] = m.group(1).strip().rstrip(".,?")
+                break
 
-        m = _DATE_RANGE_PATTERN.search(query)
-        if m:
-            sql_params["date_from"] = m.group(1).strip()
-            sql_params["date_to"] = m.group(2).strip()
+        date_from, date_to = extract_date_range(query, day_first=self.day_first)
+        if date_from:
+            sql_params["date_from"] = date_from      # ISO, inclusive
+        if date_to:
+            sql_params["date_to"] = date_to
 
         for direction, amount in amount_filters:
             value = float(amount.replace(",", ""))

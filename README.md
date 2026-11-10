@@ -137,6 +137,7 @@ chat model chosen in the UI is saved in `settings.json` and overrides
 | `retrieval.final_k` | Passages given to the model per question | `6` |
 | `retrieval.use_llm_grader` | Extra relevance check (slower) | `false` |
 | `chunking.default_chunk_size` | Characters per chunk | `800` |
+| `structured_db.dates_day_first` | Read `05/03/2024` as 5 March (`true`) or May 3 (`false`) | `false` |
 | `audio.whisper_model_size` | Whisper model size | `base` |
 
 ## Security

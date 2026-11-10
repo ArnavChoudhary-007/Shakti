@@ -151,7 +151,8 @@ def _get_chunker() -> Chunker:
 
 def _get_struct_db() -> StructuredDB:
     db_path = _CONFIG.get("structured_db", {}).get("sqlite_path", "./structured_db/structured.db")
-    return _singleton("_struct_db", lambda: StructuredDB(db_path))
+    day_first = bool(_CONFIG.get("structured_db", {}).get("dates_day_first", False))
+    return _singleton("_struct_db", lambda: StructuredDB(db_path, day_first=day_first))
 
 
 def _get_router() -> QueryRouter:

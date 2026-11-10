@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
+from rag_pipeline.structured_db.dates import parse_date
 from rag_pipeline.structured_db.numeric import as_number, format_summary, is_identifier
 
 
@@ -65,8 +66,10 @@ CREATE TABLE IF NOT EXISTS invoices (
     file_path       TEXT,
     vendor          TEXT,
     invoice_number  TEXT,
-    invoice_date    TEXT,
+    invoice_date    TEXT,               -- as written on the invoice
     due_date        TEXT,
+    invoice_date_iso TEXT,              -- YYYY-MM-DD, used for filtering and sorting
+    due_date_iso    TEXT,
     total_amount    REAL,
     currency        TEXT DEFAULT 'USD',
     bill_to         TEXT,
@@ -207,8 +210,9 @@ class StructuredDB:
     Thread-safe via connection-per-call pattern.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, day_first: bool = False):
         self.db_path = str(Path(db_path).resolve())
+        self.day_first = day_first     # how to read ambiguous dates like 05/03/2024
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -263,9 +267,32 @@ class StructuredDB:
                 conn.execute("ALTER TABLE kg_edges ADD COLUMN is_pruned BOOLEAN DEFAULT 0")
             except sqlite3.OperationalError: pass
 
+            for column in ("invoice_date_iso", "due_date_iso"):
+                try:
+                    conn.execute(f"ALTER TABLE invoices ADD COLUMN {column} TEXT")
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_invoices_date_iso ON invoices(workspace_id, invoice_date_iso)")
+            self._backfill_iso_dates(conn)
+
             self._migrate_kg_nodes_to_workspaces(conn)
 
         logger.info("Structured DB initialised at %s", self.db_path)
+
+    def _iso(self, value: Any) -> Optional[str]:
+        return parse_date(value, day_first=self.day_first, fuzzy=True) if value else None
+
+    def _backfill_iso_dates(self, conn: sqlite3.Connection) -> None:
+        """Invoices stored before dates were normalized: parse their text dates once."""
+        rows = conn.execute(
+            "SELECT id, invoice_date, due_date FROM invoices "
+            "WHERE (invoice_date_iso IS NULL AND COALESCE(invoice_date, '') != '') "
+            "   OR (due_date_iso IS NULL AND COALESCE(due_date, '') != '')"
+        ).fetchall()
+        updates = [(self._iso(r["invoice_date"]), self._iso(r["due_date"]), r["id"]) for r in rows]
+        if updates:
+            conn.executemany("UPDATE invoices SET invoice_date_iso = ?, due_date_iso = ? WHERE id = ?", updates)
+            logger.info("Normalized dates on %d existing invoice(s).", len(updates))
 
     @staticmethod
     def _migrate_kg_nodes_to_workspaces(conn: sqlite3.Connection) -> None:
@@ -312,13 +339,16 @@ class StructuredDB:
             conn.execute("""
                 INSERT INTO invoices
                     (doc_id, file_name, file_path, vendor, invoice_number,
-                     invoice_date, due_date, total_amount, currency, bill_to, raw_text, workspace_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     invoice_date, due_date, invoice_date_iso, due_date_iso,
+                     total_amount, currency, bill_to, raw_text, workspace_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(doc_id) DO UPDATE SET
                     vendor=excluded.vendor,
                     invoice_number=excluded.invoice_number,
                     invoice_date=excluded.invoice_date,
                     due_date=excluded.due_date,
+                    invoice_date_iso=excluded.invoice_date_iso,
+                    due_date_iso=excluded.due_date_iso,
                     total_amount=excluded.total_amount,
                     currency=excluded.currency,
                     bill_to=excluded.bill_to,
@@ -330,6 +360,8 @@ class StructuredDB:
                 structured_data.get("invoice_number"),
                 structured_data.get("invoice_date"),
                 structured_data.get("due_date"),
+                self._iso(structured_data.get("invoice_date")),
+                self._iso(structured_data.get("due_date")),
                 total_amount,
                 structured_data.get("currency", "USD"),
                 structured_data.get("bill_to"),
@@ -386,12 +418,17 @@ class StructuredDB:
         if invoice_number:
             conditions.append("invoice_number LIKE ?")
             params.append(f"%{invoice_number}%")
-        if date_from:
-            conditions.append("invoice_date >= ?")
-            params.append(date_from)
-        if date_to:
-            conditions.append("invoice_date <= ?")
-            params.append(date_to)
+        # Compare real dates, not the text on the invoice ("April" < "March" as text).
+        # Bounds may be ISO (from the router) or free text from other callers.
+        for bound, op, end in ((date_from, ">=", False), (date_to, "<=", True)):
+            if not bound:
+                continue
+            iso = parse_date(bound, end=end, day_first=self.day_first)
+            if iso is None:
+                logger.warning("Ignoring unparseable date filter %r", bound)
+                continue
+            conditions.append(f"invoice_date_iso {op} ?")
+            params.append(iso)
         if min_amount is not None:
             conditions.append("total_amount >= ?")
             params.append(min_amount)
@@ -400,7 +437,7 @@ class StructuredDB:
             params.append(max_amount)
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        return f"SELECT * FROM invoices {where} ORDER BY invoice_date DESC", params
+        return f"SELECT * FROM invoices {where} ORDER BY invoice_date_iso IS NULL, invoice_date_iso DESC, id DESC", params
 
     def total_invoices(self, vendor: Optional[str] = None, workspace_id: str = "default") -> float:
         """Sum of total_amount, optionally filtered by vendor."""
