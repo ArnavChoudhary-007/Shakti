@@ -63,6 +63,7 @@ from rag_pipeline.core.model_catalog import (
 from rag_pipeline.core.vectorstore import get_vector_store
 from rag_pipeline.core.retriever import Retriever, get_reranker, reranker_state, reset_reranker_failure
 from rag_pipeline.core import search_models
+from rag_pipeline.core.user_errors import describe_ingest_error
 from rag_pipeline.core.generator import (
     NOT_FOUND_ANSWER,
     GenerationError,
@@ -761,10 +762,13 @@ async def _run_ingest_job(job_id: str, incoming_path: Path, original_name: str, 
                 store_upload=True, on_stage=on_stage,
             )
         job.update({"status": "done", **result.model_dump(exclude={"status", "error"})})
+    except HTTPException as e:          # our own messages, e.g. "no text found"
+        logger.warning("Ingest job %s (%s) failed: %s", job_id, original_name, e.detail)
+        job.update({"status": "failed", "error": e.detail})
     except Exception as e:
-        logger.error("Ingest job %s failed: %s", job_id, e)
-        detail = e.detail if isinstance(e, HTTPException) else str(e)
-        job.update({"status": "failed", "error": detail})
+        # The technical detail (often with local paths) goes to the log only.
+        logger.error("Ingest job %s (%s) failed at stage %s", job_id, original_name, job.get("stage"), exc_info=True)
+        job.update({"status": "failed", "error": describe_ingest_error(e, original_name, job.get("stage"))})
     finally:
         job["finished_at"] = time.time()
         shutil.rmtree(incoming_path.parent, ignore_errors=True)
@@ -837,7 +841,6 @@ def _ingest_file_sync(
 def _index_file(file_path: Path, original_name: str, workspace_id: str,
                 file_key: str, content_hash: str, stage) -> IngestResponse:
     db = _get_struct_db()
-    vs = _get_vector_store()
     t_start = time.perf_counter()
     stage_times = {"parse": 0.0, "chunk": 0.0, "embed": 0.0, "store": 0.0, "kg": 0.0}
 
@@ -863,6 +866,7 @@ def _index_file(file_path: Path, original_name: str, workspace_id: str,
     # ── Embed (the slow part) before touching any stored data ──
     stage("embedding")
     t0 = time.perf_counter()
+    vs = _get_vector_store()      # may load the model: failures here are model problems, not file problems
     embedder = _get_embedder()
     embeddings: List[List[float]] = []
     batch_size = 64

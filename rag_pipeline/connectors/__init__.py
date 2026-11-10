@@ -48,6 +48,8 @@ def _get_connector(source_type: str) -> Any:
     raise ValueError(f"Unknown source type: {source_type!r}")
 
 
+from rag_pipeline.core.user_errors import UserFacingError, unsupported_type
+
 # Extension → source_type mapping
 EXTENSION_MAP: Dict[str, str] = {
     ".pdf": "pdf",
@@ -142,13 +144,10 @@ def extract_file(
 
     if source_type is None:
         if ext in _UNSUPPORTED_HINTS:
-            raise ValueError(_UNSUPPORTED_HINTS[ext])
+            raise UserFacingError(_UNSUPPORTED_HINTS[ext])
         source_type = EXTENSION_MAP.get(ext)
         if source_type is None:
-            raise ValueError(
-                f"Cannot infer source_type for extension {ext!r}. "
-                f"Specify source_type explicitly or add to EXTENSION_MAP."
-            )
+            raise unsupported_type(ext)
         if source_type == "json":
             source_type = _sniff_json_source_type(file_path)
         elif source_type == "text" and ext == ".txt" and _looks_like_whatsapp(file_path):
