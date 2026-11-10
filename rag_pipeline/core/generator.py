@@ -565,10 +565,15 @@ def _sample_text(text: str, source_type: str, max_tokens: int = 2000) -> str:
             end_chunk
         )
 
-async def extract_kg_relationships(text: str, model: str = "llama3.2", host: str = "http://localhost:11434", source_type: str = "doc") -> List[Dict[str, Any]]:
+async def extract_kg_relationships(
+    text: str, model: str = "llama3.2", host: str = "http://localhost:11434",
+    source_type: str = "doc", timeout: float = 300.0,
+) -> List[Dict[str, Any]]:
     """
     Extracts knowledge graph entities and relationships from the provided text.
     Returns a list of dicts: {"source": "node1", "target": "node2", "relation": "rel"}
+    Raises GenerationError on transport, model, or invalid-output failures.
+    An empty list means extraction succeeded with no relationships.
     """
     sampled_text = _sample_text(text, source_type, max_tokens=2000)
     prompt = (
@@ -583,7 +588,7 @@ async def extract_kg_relationships(text: str, model: str = "llama3.2", host: str
     )
     
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
             resp = await client.post(
                 f"{host}/api/generate",
                 json={
@@ -594,20 +599,29 @@ async def extract_kg_relationships(text: str, model: str = "llama3.2", host: str
                     "format": "json"
                 }
             )
-            if resp.status_code == 200:
-                result = resp.json().get("response", "").strip()
-                try:
-                    data = json.loads(result)
-                    if isinstance(data, list):
-                        return [d for d in data if isinstance(d, dict) and "source" in d and "target" in d and "relation" in d]
-                    elif isinstance(data, dict):
-                        if "edges" in data and isinstance(data["edges"], list):
-                            return data["edges"]
-                        elif "source" in data and "target" in data and "relation" in data:
-                            return [data]
-                except json.JSONDecodeError:
-                    pass
-    except Exception as e:
-        logger.warning(f"Failed to extract KG relationships: {e}")
-        
-    return []
+            resp.raise_for_status()
+            data = json.loads(resp.json()["response"])
+    except httpx.HTTPStatusError as error:
+        raise GenerationError(_describe_status_error(error, model)) from error
+    except httpx.RequestError as error:
+        raise GenerationError(_describe_connection_error(error, model)) from error
+    except (ValueError, KeyError, TypeError) as error:
+        raise GenerationError("Ollama returned invalid relationship data. Build the graph again to retry.") from error
+
+    if isinstance(data, dict):
+        if "edges" in data:
+            data = data["edges"]
+        elif all(key in data for key in ("source", "target", "relation")):
+            data = [data]
+    if not isinstance(data, list) or any(
+        not isinstance(edge, dict) or any(
+            not isinstance(edge.get(key), str) or not edge[key].strip()
+            for key in ("source", "target", "relation")
+        ) or any(
+            key in edge and not isinstance(edge[key], str)
+            for key in ("source_type", "target_type")
+        )
+        for edge in data
+    ):
+        raise GenerationError("Ollama returned invalid relationship data. Build the graph again to retry.")
+    return data

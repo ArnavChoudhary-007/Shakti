@@ -103,6 +103,11 @@ rows** in the workspace, before limiting the row preview. The model sees up to
 When rows are omitted, the prompt and citation label identify the truncated
 preview; the aggregates still cover the entire matching set.
 
+Knowledge-graph extraction uses `ollama.request_timeout` (300 seconds by
+default). If Ollama is unavailable, times out, or returns invalid relationship
+data, the build reports an error and keeps failed documents queued. Build the
+graph again to retry without re-uploading; successful jobs are not repeated.
+
 ## Releasing
 
 - Push a tag like `v0.2.1`: the **Release** workflow builds the UI, packages

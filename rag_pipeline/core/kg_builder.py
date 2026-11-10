@@ -4,12 +4,12 @@ import httpx
 import logging
 from typing import Dict, List, Any
 
-from rag_pipeline.core.generator import extract_kg_relationships
+from rag_pipeline.core.generator import GenerationError, extract_kg_relationships
 
 logger = logging.getLogger(__name__)
 
 
-async def _extract_pending_kg(workspace_id: str, db, host: str, model: str) -> None:
+async def _extract_pending_kg(workspace_id: str, db, host: str, model: str, timeout: float = 300.0) -> None:
     """
     Run entity/relationship extraction for every document queued during
     ingestion (one Ollama call per queued doc — same unit as before, just
@@ -25,7 +25,7 @@ async def _extract_pending_kg(workspace_id: str, db, host: str, model: str) -> N
     for row in pending:
         try:
             kg_edges = await extract_kg_relationships(
-                row["text"], model=model, host=host, source_type=row["source_type"] or "doc"
+                row["text"], model=model, host=host, source_type=row["source_type"] or "doc", timeout=timeout
             )
             if isinstance(kg_edges, list) and len(kg_edges) > 0:
                 db.upsert_kg_data({"edges": kg_edges}, source_doc=row["source_doc"], workspace_id=workspace_id)
@@ -35,9 +35,15 @@ async def _extract_pending_kg(workspace_id: str, db, host: str, model: str) -> N
 
     db.delete_kg_pending_docs(done_ids)
     logger.info(f"KG extraction done: {len(done_ids)}/{len(pending)} doc(s) succeeded.")
+    failed_count = len(pending) - len(done_ids)
+    if failed_count:
+        raise GenerationError(
+            f"Graph extraction failed for {failed_count} document(s). Their jobs are still queued. "
+            "Check Ollama and the selected model, then build the graph again to retry."
+        )
 
 
-async def build_graph_layout(workspace_id: str, db, host: str = "http://localhost:11434", model: str = "llama3.2:1b", min_edge_weight: int = 1) -> None:
+async def build_graph_layout(workspace_id: str, db, host: str = "http://localhost:11434", model: str = "llama3.2:1b", min_edge_weight: int = 1, timeout: float = 300.0) -> None:
     """
     Offline processing for Knowledge Graph:
     0. Extract entities/relationships for any docs queued since the last build.
@@ -51,7 +57,7 @@ async def build_graph_layout(workspace_id: str, db, host: str = "http://localhos
     logger.info(f"Building KG layout for workspace {workspace_id}...")
 
     # 0. Extract KG data for anything queued during ingestion
-    await _extract_pending_kg(workspace_id, db, host, model)
+    await _extract_pending_kg(workspace_id, db, host, model, timeout=timeout)
 
     # 1. Load data
     with db._connect() as conn:

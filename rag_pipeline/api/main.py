@@ -986,7 +986,10 @@ async def build_knowledge_graph(
                 host=_OLLAMA_HOST,
                 model=user_settings.get_chat_model(_CONFIG),
                 min_edge_weight=min_edge_weight,
+                timeout=float(_CONFIG.get("ollama", {}).get("request_timeout", 300)),
             )
+        except GenerationError as error:
+            raise HTTPException(status_code=502, detail=str(error))
         except Exception as e:
             logger.error(f"Failed to build graph layout: {e}")
             raise HTTPException(status_code=500, detail=str(e))
