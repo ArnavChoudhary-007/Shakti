@@ -67,6 +67,9 @@ rag_pipeline/
 │   ├── embedder.py      sentence-transformers wrapper, batched
 │   ├── vectorstore.py   Chroma/FAISS interface (config-selected backend)
 │   ├── retriever.py     Hybrid retrieval (vector + BM25 + reranker)
+│   ├── search_models.py Downloads the embedder + reranker once (with
+│   │                    progress), then always loads them from the local
+│   │                    Hugging Face cache (no network)
 │   ├── generator.py     Ollama client, citation-grounded prompting,
 │   │                    streaming, and extract_kg_relationships
 │   ├── kg_builder.py    Clustering/labeling/pruning for the knowledge graph
@@ -97,10 +100,11 @@ gets 403 before routing. Interactive docs are at `/docs`.
 | GET | `/version` | Identifies the companion. The only route the public site may call before pairing (to detect an install). |
 | GET | `/pair/token` | Pairing token for the public site. Only the companion's own page can read it. |
 | GET/PUT | `/settings` | UI-chosen settings (`chat_model`), stored in `<data_dir>/settings.json`. |
-| GET | `/setup/status` | Ollama installed/running/version, installed models, chosen model and whether it's installed, auto-install progress. |
+| GET | `/setup/status` | Ollama installed/running/version, installed models, chosen model and whether it's installed, auto-install progress, and `search_models` (embedder/reranker downloaded + loaded, download job progress). |
+| POST | `/setup/search-models` | Downloads the embedder and reranker if missing, then loads them. Runs in the background; progress via `/setup/status`. |
 | POST | `/setup/ollama/start` | Launches Ollama (the tray app on Windows, else `ollama serve`). |
 | POST | `/setup/ollama/install` | Windows: downloads `OllamaSetup.exe` from ollama.com, verifies its Authenticode signer is "Ollama Inc.", runs the interactive installer. Progress via `/setup/status`. |
-| GET | `/health` | Ollama reachability, embedder readiness, vector store count |
+| GET | `/health` | Ollama reachability, embedder readiness, vector store count. Never loads a model. |
 | GET | `/system/recommendations` | Live RAM/CPU + installed models + curated suggestions (`data/suggested_models.json`) that fit the RAM budget. 503 if Ollama is down. |
 | GET | `/models`, `/ollama/models` | Installed models (filtered / raw) |
 | POST | `/ollama/pull` | Streams Ollama's pull progress (NDJSON) |
@@ -184,3 +188,13 @@ in the user's browser* (and other devices on the LAN).
   request open while it makes Ollama calls (minutes on a big workspace). A
   per-workspace lock prevents concurrent builds.
 - **One Ollama host** (`ollama.host`) for everything.
+
+## Model loading
+
+The embedder, vector store and reranker are lazy singletons in `api/main.py`,
+each behind its own lock, so concurrent first requests load a model once.
+Anything that may load a model runs in a worker thread, never on the event
+loop. On startup a background thread loads them if they're already
+downloaded; it never downloads. A failed reranker load is remembered for five
+minutes instead of being retried on every question (`retriever.py`), and a
+successful setup download clears that.

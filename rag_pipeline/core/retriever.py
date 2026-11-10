@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
+import time
 from typing import Any, Dict, List, Optional
 
 try:
@@ -19,24 +21,57 @@ try:
 except ImportError:
     CrossEncoder = None
 
+from rag_pipeline.core.search_models import load_kwargs, repo_id
+
 logger = logging.getLogger(__name__)
 
+# Loaded once and shared. A failed load is remembered for a while instead of
+# being retried (and re-timing-out) on every question.
 _reranker = None
+_reranker_error: Optional[str] = None
+_reranker_failed_at = 0.0
+_reranker_lock = threading.Lock()
+RERANKER_RETRY_SECONDS = 300.0
+
 
 def get_reranker(model_name: str):
-    global _reranker
-    if _reranker is None:
-        if CrossEncoder is None:
+    global _reranker, _reranker_error, _reranker_failed_at
+    if _reranker is not None:
+        return _reranker
+    if CrossEncoder is None:
+        if _reranker_error is None:
+            _reranker_error = "sentence-transformers is not installed"
             logger.warning("sentence_transformers not installed. Reranking disabled.")
+        return None
+    with _reranker_lock:
+        if _reranker is not None:
+            return _reranker
+        if _reranker_error and time.monotonic() - _reranker_failed_at < RERANKER_RETRY_SECONDS:
             return None
-        logger.info(f"Loading cross-encoder reranker: {model_name}...")
+        logger.info("Loading cross-encoder reranker: %s...", model_name)
         try:
-            _reranker = CrossEncoder(model_name)
+            _reranker = CrossEncoder(model_name, **load_kwargs(repo_id(model_name, "reranker")))
+            _reranker_error = None
             logger.info("Reranker loaded successfully.")
         except Exception as e:
-            logger.error(f"Failed to load reranker {model_name}: {e}")
+            _reranker_error = str(e)
+            _reranker_failed_at = time.monotonic()
+            logger.error("Failed to load reranker %s: %s (retrying in %.0fs at the earliest)",
+                         model_name, e, RERANKER_RETRY_SECONDS)
             return None
     return _reranker
+
+
+def reset_reranker_failure() -> None:
+    """Allow an immediate retry, e.g. right after the model has been downloaded."""
+    global _reranker_error, _reranker_failed_at
+    with _reranker_lock:
+        _reranker_error = None
+        _reranker_failed_at = 0.0
+
+
+def reranker_state() -> Dict[str, Any]:
+    return {"loaded": _reranker is not None, "error": _reranker_error}
 
 
 class Retriever:

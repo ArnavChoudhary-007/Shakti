@@ -21,8 +21,9 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/Arn
 ```
 
 It installs for your user only (no admin rights), then opens Shakti in your
-browser. The setup page helps you install Ollama and download a model, then
-you upload documents and start asking. [Read the script](install.ps1) first if
+browser. The setup page helps you install Ollama, download a chat model and
+the two document-search models (about 180 MB, once), then you upload
+documents and start asking. After setup nothing needs the internet. [Read the script](install.ps1) first if
 you like — it installs [uv](https://docs.astral.sh/uv/) (which brings its own
 Python), downloads the latest release, and adds a Start-menu shortcut.
 

@@ -11,6 +11,7 @@ Batched sentence-transformers embedder.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,8 @@ class Embedder:
         self.batch_size = batch_size
         self.normalize_embeddings = normalize_embeddings
         self._model = None          # lazy-loaded
+        self._dim: Optional[int] = None
+        self._lock = threading.Lock()  # first use may come from several threads at once
 
     # ── Factory ───────────────────────────────────────────────
 
@@ -51,20 +54,32 @@ class Embedder:
 
     # ── Lazy model load ───────────────────────────────────────
 
+    @property
+    def is_loaded(self) -> bool:
+        return self._model is not None
+
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        logger.info("Loading sentence-transformers model %r on %s ...", self.model_name, self.device)
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError:
-            raise RuntimeError(
-                "sentence-transformers not installed.\n"
-                "Install with: pip install sentence-transformers"
+        with self._lock:
+            if self._model is not None:   # another thread finished loading while we waited
+                return
+            logger.info("Loading sentence-transformers model %r on %s ...", self.model_name, self.device)
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError:
+                raise RuntimeError(
+                    "sentence-transformers not installed. "
+                    "Install with: pip install sentence-transformers"
+                )
+            from rag_pipeline.core.search_models import load_kwargs, repo_id
+            model = SentenceTransformer(
+                self.model_name, device=self.device,
+                **load_kwargs(repo_id(self.model_name, "embedding")),
             )
-        self._model = SentenceTransformer(self.model_name, device=self.device)
-        self._dim = self._model.get_sentence_embedding_dimension()
-        logger.info("Model loaded. Embedding dimension: %d", self._dim)
+            self._dim = model.get_sentence_embedding_dimension()
+            self._model = model   # publish last, so other threads never see a half-loaded model
+            logger.info("Model loaded. Embedding dimension: %d", self._dim)
 
     @property
     def dimension(self) -> int:

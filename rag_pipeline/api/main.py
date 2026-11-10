@@ -15,6 +15,7 @@ Ollama model is swappable per-request via ?model=llama3.2.
 from __future__ import annotations
 
 import asyncio
+import threading
 import hashlib
 import json
 import shutil
@@ -23,7 +24,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 import httpx
 import requests
@@ -60,7 +61,8 @@ from rag_pipeline.core.model_catalog import (
     build_suggestions_view,
 )
 from rag_pipeline.core.vectorstore import get_vector_store
-from rag_pipeline.core.retriever import Retriever
+from rag_pipeline.core.retriever import Retriever, get_reranker, reranker_state, reset_reranker_failure
+from rag_pipeline.core import search_models
 from rag_pipeline.core.generator import (
     NOT_FOUND_ANSWER,
     GenerationError,
@@ -96,65 +98,89 @@ _struct_db: Optional[StructuredDB] = None
 _router: Optional[QueryRouter] = None
 
 
+# Each singleton has its own lock: the first upload, the first question and
+# the startup warm-up can all ask for the same model at the same moment, and
+# it must be loaded once. Separate locks (rather than one) keep a slow model
+# load from stalling unrelated lookups such as the SQLite handle.
+_SINGLETON_LOCKS: Dict[str, threading.Lock] = {
+    name: threading.Lock()
+    for name in ("_embedder", "_vector_store", "_retriever", "_generator",
+                 "_normalizer", "_chunker", "_struct_db", "_router")
+}
+
+
+def _singleton(name: str, factory: Callable[[], Any]) -> Any:
+    value = globals()[name]
+    if value is None:
+        with _SINGLETON_LOCKS[name]:
+            value = globals()[name]
+            if value is None:
+                value = factory()
+                globals()[name] = value
+    return value
+
+
 def _get_embedder() -> Embedder:
-    global _embedder
-    if _embedder is None:
-        _embedder = Embedder.from_config(_CONFIG)
-    return _embedder
+    return _singleton("_embedder", lambda: Embedder.from_config(_CONFIG))
 
 
 def _get_vector_store():
-    global _vector_store
-    if _vector_store is None:
-        _vector_store = get_vector_store(_CONFIG, embedder_dim=_get_embedder().dimension)
-    return _vector_store
+    # Creating the store needs the embedding dimension, which loads the model:
+    # only ever call this from a worker thread, never on the event loop.
+    return _singleton("_vector_store", lambda: get_vector_store(_CONFIG, embedder_dim=_get_embedder().dimension))
 
 
 def _get_retriever() -> Retriever:
-    global _retriever
-    if _retriever is None:
-        _retriever = Retriever(
-            vector_store=_get_vector_store(),
-            embedder=_get_embedder(),
-            config=_CONFIG,
-        )
-    return _retriever
+    return _singleton("_retriever", lambda: Retriever(
+        vector_store=_get_vector_store(), embedder=_get_embedder(), config=_CONFIG,
+    ))
 
 
 def _get_generator() -> Generator:
-    global _generator
-    if _generator is None:
-        _generator = Generator(_CONFIG)
-    return _generator
+    return _singleton("_generator", lambda: Generator(_CONFIG))
 
 
 def _get_normalizer() -> Normalizer:
-    global _normalizer
-    if _normalizer is None:
-        _normalizer = Normalizer()
-    return _normalizer
+    return _singleton("_normalizer", Normalizer)
 
 
 def _get_chunker() -> Chunker:
-    global _chunker
-    if _chunker is None:
-        _chunker = Chunker(_CONFIG)
-    return _chunker
+    return _singleton("_chunker", lambda: Chunker(_CONFIG))
 
 
 def _get_struct_db() -> StructuredDB:
-    global _struct_db
-    if _struct_db is None:
-        db_path = _CONFIG.get("structured_db", {}).get("sqlite_path", "./structured_db/structured.db")
-        _struct_db = StructuredDB(db_path)
-    return _struct_db
+    db_path = _CONFIG.get("structured_db", {}).get("sqlite_path", "./structured_db/structured.db")
+    return _singleton("_struct_db", lambda: StructuredDB(db_path))
 
 
 def _get_router() -> QueryRouter:
-    global _router
-    if _router is None:
-        _router = QueryRouter(_CONFIG)
-    return _router
+    return _singleton("_router", lambda: QueryRouter(_CONFIG))
+
+
+def _reranker_name() -> str:
+    return _CONFIG.get("retrieval", {}).get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+
+def _load_search_models() -> None:
+    """Bring the embedder, vector store and reranker into memory (worker thread)."""
+    _get_retriever()            # embedder + vector store
+    _get_embedder().dimension   # FAISS/Chroma may not have needed the model yet
+    reset_reranker_failure()
+    if get_reranker(_reranker_name()) is None:
+        raise RuntimeError(reranker_state()["error"] or "the reranker could not be loaded")
+
+
+def _warm_up_search_models() -> None:
+    """Startup: load the models in the background if they're already downloaded,
+    so the first question doesn't pay for it. Never downloads anything."""
+    if not search_models.status(_CONFIG)["ready"]:
+        logger.info("Search models not downloaded yet; the setup page will fetch them.")
+        return
+    try:
+        _load_search_models()
+        logger.info("Search models loaded.")
+    except Exception as e:
+        logger.warning("Search model warm-up failed: %s", e)
 
 
 # ── FastAPI app ───────────────────────────────────────────────
@@ -183,6 +209,7 @@ async def _lifespan(app: FastAPI):
         await asyncio.to_thread(_backfill_legacy_documents)
     except Exception as e:
         logger.warning("Legacy document backfill skipped: %s", e)
+    threading.Thread(target=_warm_up_search_models, name="search-models-warmup", daemon=True).start()
     yield
     if _http is not None:
         await _http.aclose()
@@ -286,18 +313,21 @@ async def health():
 
     # Cloud models will be returned natively by /api/tags if they are pulled
 
-    embedder_status = "ok"
-    try:
-        emb = _get_embedder()
-        _ = emb.dimension
-    except Exception as e:
-        embedder_status = f"error: {e}"
+    # Report model state without loading anything: a health probe must stay
+    # instant and must not trigger a model download.
+    if _embedder is not None and _embedder.is_loaded:
+        embedder_status = "ok"
+    elif (await asyncio.to_thread(search_models.status, _CONFIG))["ready"]:
+        embedder_status = "ok"      # downloaded; loads on first use
+    else:
+        embedder_status = "not downloaded"
 
     vs_count = 0
-    try:
-        vs_count = _get_vector_store().count()
-    except Exception:
-        pass
+    if _vector_store is not None:
+        try:
+            vs_count = await asyncio.to_thread(_vector_store.count)
+        except Exception:
+            pass
 
     return HealthResponse(
         status="ok" if ollama_status == "ok" and embedder_status == "ok" else "degraded",
@@ -360,8 +390,29 @@ async def setup_status():
         "models": models,
         "chat_model": chat_model,
         "chat_model_installed": chat_model in models,
+        "search_models": await asyncio.to_thread(_search_models_status),
     })
     return status
+
+
+def _search_models_status() -> Dict[str, Any]:
+    status = search_models.status(_CONFIG)
+    loaded = {
+        "embedding": _embedder is not None and _embedder.is_loaded,
+        "reranker": reranker_state()["loaded"],
+    }
+    for m in status["models"]:
+        m["loaded"] = loaded[m["kind"]]
+    return status
+
+
+@app.post("/setup/search-models", tags=["Setup"])
+async def setup_search_models():
+    """
+    Download the embedding + reranker models (with progress, polled through
+    /setup/status → search_models.job) and load them. Safe to call again.
+    """
+    return search_models.start_prepare(_CONFIG, _load_search_models)
 
 
 @app.post("/setup/ollama/start", tags=["Setup"])
@@ -489,7 +540,7 @@ async def pull_model(req: PullRequest):
 @app.get("/docs_count", tags=["System"])
 async def docs_count():
     """Return the number of chunks currently indexed."""
-    return {"chunk_count": _get_vector_store().count()}
+    return {"chunk_count": await asyncio.to_thread(lambda: _get_vector_store().count())}
 
 
 # ── /query ────────────────────────────────────────────────────
@@ -519,8 +570,10 @@ async def _gather_context(req: QueryRequest, query_text: str):
         # SQL found nothing → fall back to document search below.
 
     filters = {**(req.filters or {}), "workspace_id": req.workspace_id}
+    # _get_retriever() itself may load the embedding model, so it runs in the
+    # worker thread too — evaluating it here would block the event loop.
     chunks = await asyncio.to_thread(
-        _get_retriever().retrieve, query_text, top_k=req.top_k, filters=filters
+        lambda: _get_retriever().retrieve(query_text, top_k=req.top_k, filters=filters)
     )
 
     retrieval_cfg = _CONFIG.get("retrieval", {})
