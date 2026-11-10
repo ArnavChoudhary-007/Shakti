@@ -104,7 +104,7 @@ class Retriever:
         reranker_model = retrieval_cfg.get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")
         reranker = get_reranker(reranker_model)
         
-        if reranker is not None and len(candidates) > 1:
+        if reranker is not None:
             pairs = [(query, r.get("text", "")) for r in candidates]
             try:
                 scores = reranker.predict(pairs)

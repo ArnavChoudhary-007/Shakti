@@ -543,13 +543,18 @@ async def _gather_context(req: QueryRequest, query_text: str):
         _get_retriever().retrieve, query_text, top_k=req.top_k, filters=filters
     )
 
+    retrieval_cfg = _CONFIG.get("retrieval", {})
     threshold = float(_CONFIG.get("vector_store", {}).get("similarity_threshold", 0.0))
     if chunks:
-        best = chunks[0].get("combined_score", chunks[0].get("score", 0.0))
-        if best < threshold:
-            chunks = []
+        if all("rerank_score" in chunk for chunk in chunks):
+            min_score = float(retrieval_cfg.get("min_rerank_score", -8.0))
+            chunks = [chunk for chunk in chunks if chunk["rerank_score"] >= min_score]
+        else:
+            best = max(chunk.get("combined_score", chunk.get("score", 0.0)) for chunk in chunks)
+            if best < threshold:
+                chunks = []
 
-    if chunks and _CONFIG.get("retrieval", {}).get("use_llm_grader", False):
+    if chunks and retrieval_cfg.get("use_llm_grader", False):
         if not await _get_generator().grade_context(query_text, chunks):
             chunks = []
     return chunks, False, route
