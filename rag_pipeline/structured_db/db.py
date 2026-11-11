@@ -870,16 +870,25 @@ class StructuredDB:
             out.append(d)
         return out
 
-    def delete_document(self, doc: Dict[str, Any]) -> None:
+    def discard_ingestion(self, file_key: str) -> None:
+        """Remove uncommitted rows without touching an older version's graph."""
+        prefix = f"{file_key}-%"
+        with self._connect() as conn:
+            conn.execute("DELETE FROM invoices WHERE doc_id LIKE ?", (prefix,))
+            conn.execute("DELETE FROM ledger_records WHERE doc_id LIKE ?", (prefix,))
+            conn.execute("DELETE FROM kg_pending_docs WHERE doc_id LIKE ?", (prefix,))
+
+    def delete_document(self, doc: Dict[str, Any], preserve_file_key: Optional[str] = None) -> None:
         """Remove a file's structured rows, KG contributions, and its documents row."""
         file_key, ws, name = doc["file_key"], doc["workspace_id"], doc["file_name"]
         prefix = f"{file_key}-%"
         with self._connect() as conn:
             if doc.get("legacy"):
                 # Pre-documents-table rows have random doc_ids; match by file name.
-                conn.execute("DELETE FROM invoices WHERE workspace_id = ? AND file_name = ?", (ws, name))
-                conn.execute("DELETE FROM ledger_records WHERE workspace_id = ? AND file_name = ?", (ws, name))
-                conn.execute("DELETE FROM kg_pending_docs WHERE workspace_id = ? AND source_doc = ?", (ws, name))
+                keep_prefix = f"{preserve_file_key}-%" if preserve_file_key else ""
+                conn.execute("DELETE FROM invoices WHERE workspace_id = ? AND file_name = ? AND doc_id NOT LIKE ?", (ws, name, keep_prefix))
+                conn.execute("DELETE FROM ledger_records WHERE workspace_id = ? AND file_name = ? AND doc_id NOT LIKE ?", (ws, name, keep_prefix))
+                conn.execute("DELETE FROM kg_pending_docs WHERE workspace_id = ? AND source_doc = ? AND doc_id NOT LIKE ?", (ws, name, keep_prefix))
             else:
                 conn.execute("DELETE FROM invoices WHERE doc_id LIKE ?", (prefix,))
                 conn.execute("DELETE FROM ledger_records WHERE doc_id LIKE ?", (prefix,))

@@ -783,13 +783,23 @@ def _hash_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _delete_document(doc: Dict[str, Any]) -> None:
+def _delete_document(doc: Dict[str, Any], preserve_file_key: Optional[str] = None) -> None:
     """Remove one ingested file everywhere: vectors, SQL rows, KG, upload copy."""
-    if doc.get("legacy"):
+    if doc.get("legacy") and preserve_file_key:
+        store = _get_vector_store()
+        doc_ids = {meta.get("doc_id") for meta in store.iter_metadata()
+                   if meta.get("workspace_id") == doc["workspace_id"]
+                   and meta.get("file_name") == doc["file_name"]
+                   and meta.get("file_key") != preserve_file_key}
+        for doc_id in doc_ids:
+            if doc_id is not None:
+                store.delete_where({"workspace_id": doc["workspace_id"],
+                                    "file_name": doc["file_name"], "doc_id": doc_id})
+    elif doc.get("legacy"):
         _get_vector_store().delete_where({"workspace_id": doc["workspace_id"], "file_name": doc["file_name"]})
     else:
         _get_vector_store().delete_where({"file_key": doc["file_key"]})
-    _get_struct_db().delete_document(doc)
+    _get_struct_db().delete_document(doc, preserve_file_key=preserve_file_key)
     shutil.rmtree(_UPLOAD_DIR / doc["file_key"], ignore_errors=True)
 
 
@@ -831,11 +841,28 @@ def _ingest_file_sync(
         shutil.move(str(file_path), stored)
         file_path = stored
 
+    saving_started = False
+
+    def report_stage(value):
+        nonlocal saving_started
+        saving_started = saving_started or value == "saving"
+        stage(value)
+
     try:
-        return _index_file(file_path, original_name, workspace_id, file_key, content_hash, stage)
+        return _index_file(file_path, original_name, workspace_id, file_key, content_hash, report_stage)
     except Exception:
-        if stored_dir is not None:
-            shutil.rmtree(stored_dir, ignore_errors=True)
+        if not saving_started or db.get_document(file_key) is None:
+            if saving_started:
+                for cleanup in (
+                    lambda: _get_vector_store().delete_where({"file_key": file_key}),
+                    lambda: db.discard_ingestion(file_key),
+                ):
+                    try:
+                        cleanup()
+                    except Exception:
+                        logger.exception("Failed to clean up incomplete ingestion %s", file_key)
+            if stored_dir is not None:
+                shutil.rmtree(stored_dir, ignore_errors=True)
         raise
 
 
@@ -878,8 +905,6 @@ def _index_file(file_path: Path, original_name: str, workspace_id: str,
     # ── Replace older versions of this file (same name, same workspace) ──
     stage("saving")
     previous = db.find_documents_by_name(workspace_id, original_name)
-    for old in previous:
-        _delete_document(old)
 
     # ── Store vectors ──
     t0 = time.perf_counter()
@@ -932,6 +957,9 @@ def _index_file(file_path: Path, original_name: str, workspace_id: str,
         content_hash=content_hash, size_bytes=file_path.stat().st_size,
         source_types=sorted(source_types), doc_count=len(docs), chunk_count=len(records),
     )
+
+    for old in previous:
+        _delete_document(old, preserve_file_key=file_key)
 
     stage_times["total"] = time.perf_counter() - t_start
     logger.info(

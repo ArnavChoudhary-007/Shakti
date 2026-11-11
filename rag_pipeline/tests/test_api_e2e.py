@@ -153,3 +153,90 @@ def test_unsupported_file_fails_cleanly(client, tmp_path):
     assert _docs(client, "w") == []
     leftovers = [p for p in (tmp_path / "uploads").rglob("*") if p.is_file()]
     assert leftovers == []
+
+
+@pytest.mark.parametrize("failure_point", ["vectors_before", "vectors_after", "ledger", "queue", "document"])
+@pytest.mark.parametrize("replace_existing", [False, True])
+def test_failed_upload_preserves_old_data_and_removes_partial_writes(client, monkeypatch, failure_point, replace_existing):
+    name = "payments.csv"
+    original = b"Vendor,Amount\nFalcon,100\nFalcon,200\n"
+    replacement = b"Vendor,Amount\nOsprey,300\nOsprey,400\n"
+
+    def upload(data, workspace="w"):
+        response = client.post("/ingest", files={"file": (name, data)}, data={"workspace_id": workspace})
+        assert response.status_code == 202
+        return client.get(f"/ingest/status/{response.json()['job_id']}").json()
+
+    assert upload(original, "other")["status"] == "done"
+    if replace_existing:
+        assert upload(original)["status"] == "done"
+    database = api_main._get_struct_db()
+    store = api_main._get_vector_store()
+    if replace_existing:
+        database.upsert_kg_data({"edges": [{"source": "Falcon", "target": "Payments", "relation": "received"}]},
+                                source_doc=name, workspace_id="w")
+    old_documents = _docs(client, "w")
+    old_metadata = list(store.iter_metadata())
+    old_rows = database.query_ledger(workspace_id="w")
+    old_pending = database.get_pending_kg_docs("w")
+    old_graph = database.get_knowledge_graph("w")
+    old_files = {str(path): path.read_bytes() for path in api_main._UPLOAD_DIR.rglob("*") if path.is_file()}
+    target, method = {
+        "vectors_before": (store, "add"), "vectors_after": (store, "add"),
+        "ledger": (database, "upsert_ledger_records"),
+        "queue": (database, "add_kg_pending_doc"), "document": (database, "add_document"),
+    }[failure_point]
+    original_method = getattr(target, method)
+
+    def fail(*args, **kwargs):
+        if failure_point not in ("vectors_before", "document"):
+            original_method(*args, **kwargs)
+        raise OSError("simulated storage failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(target, method, fail)
+        job = upload(replacement)
+    assert job["status"] == "failed"
+    assert _docs(client, "w") == old_documents
+    assert list(store.iter_metadata()) == old_metadata
+    assert database.query_ledger(workspace_id="w") == old_rows
+    assert database.get_pending_kg_docs("w") == old_pending
+    assert database.get_knowledge_graph("w") == old_graph
+    assert {str(path): path.read_bytes() for path in api_main._UPLOAD_DIR.rglob("*") if path.is_file()} == old_files
+    assert len(_docs(client, "other")) == 1
+    retry = upload(replacement)
+    assert retry["status"] == "done" and retry["replaced"] == int(replace_existing)
+    assert len(_docs(client, "w")) == 1
+    assert {row["row_data"]["Vendor"] for row in database.query_ledger(workspace_id="w")} == {"Osprey"}
+    assert all(row["doc_id"].startswith(retry["file_key"]) for row in database.get_pending_kg_docs("w"))
+
+
+def test_replacing_legacy_document_keeps_new_vectors_and_queue(client):
+    response = client.post("/ingest", files={"file": ("notes.txt", b"The codename is Falcon.")}, data={"workspace_id": "w"})
+    old = client.get(f"/ingest/status/{response.json()['job_id']}").json()
+    database = api_main._get_struct_db()
+    with database._connect() as connection:
+        connection.execute("UPDATE documents SET legacy = 1 WHERE file_key = ?", (old["file_key"],))
+    response = client.post("/ingest", files={"file": ("notes.txt", b"The codename is Osprey.")}, data={"workspace_id": "w"})
+    new = client.get(f"/ingest/status/{response.json()['job_id']}").json()
+    assert new["status"] == "done" and new["replaced"] == 1
+    assert {meta["file_key"] for meta in api_main._get_vector_store().iter_metadata()} == {new["file_key"]}
+    assert [doc["file_key"] for doc in _docs(client, "w")] == [new["file_key"]]
+    assert all(row["doc_id"].startswith(new["file_key"]) for row in database.get_pending_kg_docs("w"))
+    assert database.get_pending_kg_docs("w")
+
+
+def test_old_version_cleanup_failure_keeps_committed_replacement(client, monkeypatch):
+    response = client.post("/ingest", files={"file": ("notes.txt", b"The codename is Falcon.")}, data={"workspace_id": "w"})
+    assert client.get(f"/ingest/status/{response.json()['job_id']}").json()["status"] == "done"
+
+    def fail_cleanup(*args, **kwargs):
+        raise OSError("simulated cleanup failure")
+
+    monkeypatch.setattr(api_main, "_delete_document", fail_cleanup)
+    response = client.post("/ingest", files={"file": ("notes.txt", b"The codename is Osprey.")}, data={"workspace_id": "w"})
+    assert client.get(f"/ingest/status/{response.json()['job_id']}").json()["status"] == "failed"
+    documents = _docs(client, "w")
+    assert len(documents) == 2
+    for document in documents:
+        assert (api_main._UPLOAD_DIR / document["file_key"] / "notes.txt").is_file()
