@@ -58,7 +58,7 @@ export type Recommendations = {
   suggested_models: SuggestedModel[];
 };
 
-export type Settings = { chat_model: string | null; effective_chat_model: string };
+export type Settings = { chat_model: string | null; effective_chat_model: string; graph_model: string | null; effective_graph_model: string };
 
 export type DocumentRow = {
   file_key: string;
@@ -118,6 +118,8 @@ export type GraphData = {
 };
 
 export type GraphBuild = {
+  model?: string;
+  paused_for_chat?: boolean;
   state: "idle" | "running" | "done" | "error";
   stage: "starting" | "extracting" | "clustering" | "labelling" | null;
   done: number;
@@ -176,7 +178,7 @@ export function createApi(conn: Connection) {
     version: () => request<Version>("/version"),
     pairToken: () => request<{ token: string; web_origins: string[] }>("/pair/token"),
     settings: () => request<Settings>("/settings"),
-    updateSettings: (s: Partial<Pick<Settings, "chat_model">>) => request<Settings>("/settings", json("PUT", s)),
+    updateSettings: (s: Partial<Pick<Settings, "chat_model" | "graph_model">>) => request<Settings>("/settings", json("PUT", s)),
 
     setupStatus: () => request<SetupStatus>("/setup/status"),
     startOllama: () => request<{ status: string }>("/setup/ollama/start", json("POST")),

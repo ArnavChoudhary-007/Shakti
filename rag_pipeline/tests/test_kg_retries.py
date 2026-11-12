@@ -130,6 +130,8 @@ def _wait_for_build(client, workspace, timeout=5.0):
 
 
 def test_graph_build_runs_in_background_and_reports_retryable_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr(api_main.user_settings, "get_graph_model", lambda config: "graph-small:1b")
+    monkeypatch.setattr(api_main, "get_installed_models", lambda host: [{"name": "graph-small:1b"}])
     received = []
 
     async def fail_build(**kwargs):
@@ -152,11 +154,15 @@ def test_graph_build_runs_in_background_and_reports_retryable_failure(monkeypatc
     assert (body["build"]["done"], body["build"]["total"]) == (1, 3)
     assert body["building"] is False
     assert received[0]["timeout"] == 123.0
+    assert received[0]["model"] == "graph-small:1b"
+    assert received[0]["run_inference"] == api_main._inference_scheduler.background
     assert (received[0]["keep_alive"], received[0]["num_ctx"]) == ("5m", 4096)
     assert not api_main._kg_locks["work"].locked()
 
 
 def test_second_build_while_running_is_rejected(monkeypatch, tmp_path):
+    monkeypatch.setattr(api_main.user_settings, "get_graph_model", lambda config: "graph-small:1b")
+    monkeypatch.setattr(api_main, "get_installed_models", lambda host: [{"name": "graph-small:1b"}])
     import threading
     release = threading.Event()
 

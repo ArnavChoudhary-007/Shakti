@@ -110,7 +110,7 @@ gets 403 before routing. Interactive docs are at `/docs`.
 |---|---|---|
 | GET | `/version` | Identifies the companion. The only route the public site may call before pairing (to detect an install). |
 | GET | `/pair/token` | Pairing token for the public site. Only the companion's own page can read it. |
-| GET/PUT | `/settings` | UI-chosen settings (`chat_model`), stored in `<data_dir>/settings.json`. |
+| GET/PUT | `/settings` | Independent `chat_model` and `graph_model` overrides in `<data_dir>/settings.json`; GET also reports `effective_chat_model` and `effective_graph_model`. A null override restores the corresponding config default. |
 | GET | `/setup/status` | Ollama installed/running/version, installed models, chosen model and whether it's installed, auto-install progress, and `search_models` (embedder/reranker downloaded + loaded, download job progress). |
 | POST | `/setup/search-models` | Downloads the embedder and reranker if missing, then loads them. Runs in the background; progress via `/setup/status`. |
 | POST | `/setup/ollama/start` | Launches Ollama (the tray app on Windows, else `ollama serve`). |
@@ -151,6 +151,20 @@ SQL answers include totals/averages computed in code for numeric columns, so
 the model reports numbers rather than adding them up itself.
 
 ### Knowledge graph
+
+`ollama.graph_model` defaults to `llama3.2:1b`, independent of the chat model.
+The graph page can download or select its model; builds reject a missing model
+before starting, and pin the selected model for extraction and labelling.
+Progress includes the pinned `model` and a `paused_for_chat` flag.
+
+`core/inference_scheduler.py` gives streaming and non-streaming queries priority
+from contextualization/retrieval through completion. It cancels an active graph
+HTTP request, waits for its cleanup, and suspends graph requests until all active
+queries finish or are cancelled. Interrupted extraction and labelling calls
+retry without advancing progress or marking their file failed. Background
+inference is serialized across workspaces. This is request preemption, not
+model token-level checkpointing: the interrupted call starts again, and model
+loading/switching can still delay chat.
 
 | Method | Path | Purpose |
 |---|---|---|

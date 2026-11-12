@@ -19,6 +19,7 @@ from rag_pipeline import get_data_dir
 _lock = threading.Lock()
 
 _DEFAULTS: Dict[str, Any] = {
+    "graph_model": None,
     "chat_model": None,      # None → fall back to config ollama.default_text_model
 }
 
@@ -53,6 +54,11 @@ def get_chat_model(config: Dict[str, Any]) -> str:
     """The model to use when a request doesn't name one."""
     chosen: Optional[str] = load_settings().get("chat_model")
     return chosen or config.get("ollama", {}).get("default_text_model", "llama3.2:3b")
+
+
+def get_graph_model(config: Dict[str, Any]) -> str:
+    chosen: Optional[str] = load_settings().get("graph_model")
+    return chosen or config.get("ollama", {}).get("graph_model", "llama3.2:1b")
 
 
 def get_pairing_token() -> str:

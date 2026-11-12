@@ -33,7 +33,7 @@ from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, Fo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
@@ -52,6 +52,7 @@ from rag_pipeline.api.security import (
 )
 from rag_pipeline.core import ollama_setup
 from rag_pipeline.core.kg_builder import build_graph_layout
+from rag_pipeline.core.inference_scheduler import InferenceScheduler
 from rag_pipeline.core.embedder import Embedder
 from rag_pipeline.core.model_catalog import (
     get_system_specs,
@@ -87,6 +88,7 @@ _ingest_jobs: Dict[str, Dict[str, Any]] = {}
 # ── Load config at startup ────────────────────────────────────
 _CONFIG = get_config()
 _OLLAMA_HOST = _CONFIG.get("ollama", {}).get("host", "http://localhost:11434")
+_inference_scheduler = InferenceScheduler()
 
 # ── Lazy singletons ───────────────────────────────────────────
 _embedder: Optional[Embedder] = None
@@ -206,6 +208,8 @@ def _client() -> httpx.AsyncClient:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    global _inference_scheduler
+    _inference_scheduler = InferenceScheduler()
     user_settings.get_pairing_token()   # create on first run
     try:
         await asyncio.to_thread(_backfill_legacy_documents)
@@ -213,6 +217,10 @@ async def _lifespan(app: FastAPI):
         logger.warning("Legacy document backfill skipped: %s", e)
     threading.Thread(target=_warm_up_search_models, name="search-models-warmup", daemon=True).start()
     yield
+    tasks = tuple(_kg_tasks)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
     if _http is not None:
         await _http.aclose()
     if _generator is not None:
@@ -361,17 +369,20 @@ async def pair_token(request: Request):
 
 class SettingsUpdate(BaseModel):
     chat_model: Optional[str] = None
+    graph_model: Optional[str] = Field(default=None, min_length=1, max_length=200)
 
 
 @app.get("/settings", tags=["System"])
 async def get_settings():
-    return {**user_settings.load_settings(), "effective_chat_model": user_settings.get_chat_model(_CONFIG)}
+    return {**user_settings.load_settings(), "effective_chat_model": user_settings.get_chat_model(_CONFIG),
+            "effective_graph_model": user_settings.get_graph_model(_CONFIG)}
 
 
 @app.put("/settings", tags=["System"])
 async def put_settings(update: SettingsUpdate):
     saved = user_settings.update_settings(update.model_dump(exclude_unset=True))
-    return {**saved, "effective_chat_model": user_settings.get_chat_model(_CONFIG)}
+    return {**saved, "effective_chat_model": user_settings.get_chat_model(_CONFIG),
+            "effective_graph_model": user_settings.get_graph_model(_CONFIG)}
 
 
 # ── /setup — help the user install and start Ollama ───────────
@@ -627,12 +638,13 @@ async def query(req: QueryRequest):
         )
 
     try:
-        query_text = await gen.contextualize_query(req.query, req.history or [], model=model)
-        chunks, used_sql, route = await _gather_context(req, query_text)
-        if not chunks:
-            result = gen.finalize(NOT_FOUND_ANSWER, [], model)
-        else:
-            result = await gen.generate(query_text, chunks, model=model, used_sql=used_sql)
+        async with _inference_scheduler.chat():
+            query_text = await gen.contextualize_query(req.query, req.history or [], model=model)
+            chunks, used_sql, route = await _gather_context(req, query_text)
+            if not chunks:
+                result = gen.finalize(NOT_FOUND_ANSWER, [], model)
+            else:
+                result = await gen.generate(query_text, chunks, model=model, used_sql=used_sql)
     except GenerationError as e:
         raise HTTPException(status_code=502, detail=str(e))
     return QueryResponse(
@@ -646,6 +658,16 @@ async def query(req: QueryRequest):
 
 
 async def _stream_answer(req: QueryRequest, model: str) -> AsyncIterator[str]:
+    async with _inference_scheduler.chat():
+        stream = _stream_answer_body(req, model)
+        try:
+            async for event in stream:
+                yield event
+        finally:
+            await stream.aclose()
+
+
+async def _stream_answer_body(req: QueryRequest, model: str) -> AsyncIterator[str]:
     gen = _get_generator()
     try:
         query_text = req.query
@@ -1044,7 +1066,8 @@ _kg_tasks: set = set()   # strong references so running builds aren't garbage-co
 
 
 def _kg_job(workspace_id: str) -> Dict[str, Any]:
-    return _kg_jobs.get(workspace_id) or {"state": "idle", "stage": None, "done": 0, "total": 0, "error": None}
+    job = _kg_jobs.get(workspace_id) or {"state": "idle", "stage": None, "done": 0, "total": 0, "error": None}
+    return {**job, "paused_for_chat": job["state"] == "running" and _inference_scheduler.chatting}
 
 
 @app.get("/knowledge_graph", tags=["Knowledge Graph"])
@@ -1064,7 +1087,7 @@ async def get_knowledge_graph(workspace_id: str = Query("default")):
     return {**graph, "pending_docs": pending, "building": bool(lock and lock.locked()), "build": _kg_job(workspace_id)}
 
 
-async def _run_kg_build(workspace_id: str, min_edge_weight: int, lock: asyncio.Lock) -> None:
+async def _run_kg_build(workspace_id: str, min_edge_weight: int, lock: asyncio.Lock, model: str) -> None:
     job = _kg_jobs[workspace_id]
 
     def progress(stage: str, done: int, total: int) -> None:
@@ -1076,12 +1099,13 @@ async def _run_kg_build(workspace_id: str, min_edge_weight: int, lock: asyncio.L
             workspace_id=workspace_id,
             db=_get_struct_db(),
             host=_OLLAMA_HOST,
-            model=user_settings.get_chat_model(_CONFIG),
+            model=model,
             min_edge_weight=min_edge_weight,
             timeout=float(ollama_cfg.get("request_timeout", 300)),
             keep_alive=ollama_cfg.get("keep_alive", "30m"),
             num_ctx=int(ollama_cfg.get("num_ctx", 8192)),
             on_progress=progress,
+            run_inference=_inference_scheduler.background,
         )
         job.update(state="done")
     except GenerationError as e:
@@ -1109,12 +1133,23 @@ async def build_knowledge_graph(
     if lock.locked():
         raise HTTPException(status_code=409, detail="The graph for this workspace is already being built.")
     await lock.acquire()      # released by _run_kg_build when it finishes
-    _kg_jobs[workspace_id] = {"state": "running", "stage": "starting", "done": 0, "total": 0,
+    try:
+        model = user_settings.get_graph_model(_CONFIG)
+        try:
+            installed = await asyncio.to_thread(get_installed_models, _OLLAMA_HOST)
+        except requests.RequestException as error:
+            raise HTTPException(status_code=503, detail="Cannot reach Ollama. Start Ollama before building the graph.") from error
+        if model not in {item.get("name") for item in installed}:
+            raise HTTPException(status_code=409, detail=f"Graph model {model} is not installed. Download it or choose an installed graph model on the Knowledge graph page.")
+    except BaseException:
+        lock.release()
+        raise
+    _kg_jobs[workspace_id] = {"state": "running", "stage": "starting", "done": 0, "total": 0, "model": model,
                               "error": None, "started_at": time.time()}
-    task = asyncio.create_task(_run_kg_build(workspace_id, min_edge_weight, lock))
+    task = asyncio.create_task(_run_kg_build(workspace_id, min_edge_weight, lock, model))
     _kg_tasks.add(task)
     task.add_done_callback(_kg_tasks.discard)
-    return _kg_jobs[workspace_id]
+    return _kg_job(workspace_id)
 
 
 # ── /prompt_preview ───────────────────────────────────────────

@@ -110,10 +110,34 @@ rows** in the workspace, before limiting the row preview. The model sees up to
 When rows are omitted, the prompt and citation label identify the truncated
 preview; the aggregates still cover the entire matching set.
 
+The Knowledge graph page has its own model selector, independent of the chat
+model. It defaults to `ollama.graph_model` (`llama3.2:1b` unless configured).
+Download the graph model explicitly using **Download graph model**, or select
+an already-installed model. Both extraction and cluster labels use that model;
+changing it does not change chat. A running build keeps its original model.
+
+Chat has priority over graph model requests, across all workspaces. Starting a
+question cancels an in-flight graph request and pauses further graph requests.
+After all active answers finish, fail, or are stopped, the interrupted request
+is retried automatically; completed graph work is retained. The graph page
+shows **Paused for chat** while waiting. Model switching can still add latency;
+this does not promise instant answers or a particular speedup.
+
 Knowledge-graph extraction uses `ollama.request_timeout` (300 seconds by
 default). If Ollama is unavailable, times out, or returns invalid relationship
 data, the build reports an error and keeps failed documents queued. Build the
 graph again to retry without re-uploading; successful jobs are not repeated.
+
+The graph explorer groups real extracted entities by their backend community
+labels and adds source-file nodes from relationship provenance. Select a group
+to animate into it, then select an entity or file to highlight its connections.
+Source-file labels appear when exploring a selection. Use **Zoom out**, select
+the same node again, or press **Esc** to return to the overview. Wheel zoom,
+background drag-to-pan, and keyboard node selection (Enter or Space) are also
+supported. Intro animations and pulsing group halos respect reduced-motion
+preferences. Fonts and rendering stay local, without a font CDN or demo data.
+Large overviews show up to 300 entities and 100 source files and identify when
+the display is limited; this does not remove any backend graph data.
 
 ## Releasing
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import OrderedDict
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import community as community_louvain
 import httpx
@@ -28,6 +28,11 @@ import networkx as nx
 from rag_pipeline.core.generator import GenerationError, extract_kg_relationships
 
 logger = logging.getLogger(__name__)
+InferenceRunner = Callable[[Callable[[], Awaitable[Any]]], Awaitable[Any]]
+
+
+async def _run_inference(operation: Callable[[], Awaitable[Any]], runner: Optional[InferenceRunner]):
+    return await runner(operation) if runner else await operation()
 
 # ~2,000 tokens of text per extraction call: fits comfortably in num_ctx 8192
 # with the instructions and the JSON answer.
@@ -74,6 +79,7 @@ async def _extract_pending_kg(
     workspace_id: str, db, host: str, model: str, timeout: float = 300.0,
     *, keep_alive: Optional[str] = None, num_ctx: Optional[int] = None,
     on_progress: Progress = _noop,
+    run_inference: Optional[InferenceRunner] = None,
 ) -> None:
     """
     Extract every queued file. A file's queue rows are deleted only when all of
@@ -100,10 +106,10 @@ async def _extract_pending_kg(
         edges: List[Dict[str, Any]] = []
         try:
             for i, piece in enumerate(pieces, start=1):
-                edges.extend(await extract_kg_relationships(
+                edges.extend(await _run_inference(lambda: extract_kg_relationships(
                     piece, model=model, host=host, source_type=source_type, timeout=timeout,
                     keep_alive=keep_alive, num_ctx=num_ctx,
-                ))
+                ), run_inference))
                 on_progress("extracting", finished + i, total)
             if edges:
                 await asyncio.to_thread(lambda: db.upsert_kg_data(
@@ -163,7 +169,7 @@ def _compute_layout(edges_rows: List[Any], nodes_rows: List[Any], min_edge_weigh
 
 async def _label_communities(layout: Dict[str, Any], host: str, model: str, timeout: float,
                              keep_alive: Optional[str], num_ctx: Optional[int],
-                             on_progress: Progress) -> List[Dict[str, Any]]:
+                             on_progress: Progress, run_inference: Optional[InferenceRunner] = None) -> List[Dict[str, Any]]:
     labels, members = layout["labels"], layout["members"]
     by_size = sorted(members, key=lambda c: len(members[c]), reverse=True)
     to_label = [c for c in by_size if len(members[c]) >= MIN_LABELLED_COMMUNITY][:MAX_LABELLED_COMMUNITIES]
@@ -185,7 +191,7 @@ async def _label_communities(layout: Dict[str, Any], host: str, model: str, time
             if keep_alive:
                 body["keep_alive"] = keep_alive
             try:
-                resp = await client.post(f"{host}/api/generate", json=body)
+                resp = await _run_inference(lambda: client.post(f"{host}/api/generate", json=body), run_inference)
                 resp.raise_for_status()
                 label = resp.json().get("response", "").strip().strip('"').strip()
                 if label:
@@ -201,10 +207,11 @@ async def build_graph_layout(
     min_edge_weight: int = 1, timeout: float = 300.0, *,
     keep_alive: Optional[str] = None, num_ctx: Optional[int] = None,
     on_progress: Progress = _noop,
+    run_inference: Optional[InferenceRunner] = None,
 ) -> None:
     logger.info("Building KG layout for workspace %s...", workspace_id)
     await _extract_pending_kg(workspace_id, db, host, model, timeout=timeout,
-                              keep_alive=keep_alive, num_ctx=num_ctx, on_progress=on_progress)
+                              keep_alive=keep_alive, num_ctx=num_ctx, on_progress=on_progress, run_inference=run_inference)
 
     def load():
         with db._connect() as conn:
@@ -226,7 +233,7 @@ async def build_graph_layout(
 
     on_progress("clustering", 0, 1)
     layout = await asyncio.to_thread(_compute_layout, edges_rows, nodes_rows, min_edge_weight)
-    communities = await _label_communities(layout, host, model, timeout, keep_alive, num_ctx, on_progress)
+    communities = await _label_communities(layout, host, model, timeout, keep_alive, num_ctx, on_progress, run_inference)
     await asyncio.to_thread(db.save_graph_layout, workspace_id, layout["nodes"], layout["edges"], communities)
     logger.info("KG layout built: %d nodes, %d edges, %d communities.",
                 len(layout["nodes"]), len(layout["edges"]), len(communities))
