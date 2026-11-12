@@ -145,6 +145,11 @@ export default function GraphPage() {
       <Card className="relative min-h-[480px] flex-1 overflow-hidden">
         {graph.isLoading ? (
           <div className="flex items-center gap-2 p-6 text-sm text-zinc-500"><Spinner /> Loading graph…</div>
+        ) : graph.error ? (
+          <div className="p-5">
+            <Alert tone="danger" title="Couldn't load the graph">{graph.error.message}</Alert>
+            <Button className="mt-3" loading={graph.isFetching} onClick={() => void graph.refetch()}>Retry</Button>
+          </div>
         ) : !layout ? (
           <EmptyState icon={<Network className="h-6 w-6" />} title="No graph yet">
             {pending > 0 ? "Build the graph to see how the things in your documents connect." : "Upload documents first, then build the graph."}

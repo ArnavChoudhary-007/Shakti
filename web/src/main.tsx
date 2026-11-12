@@ -6,6 +6,7 @@ import App from "./App";
 import { ConnectionProvider } from "./lib/connection";
 import { PullsProvider } from "./lib/pulls";
 import { WorkspaceProvider } from "./lib/workspace";
+import { UploadsProvider } from "./lib/uploads";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -23,7 +24,9 @@ createRoot(document.getElementById("root")!).render(
         <ConnectionProvider>
           <WorkspaceProvider>
             <PullsProvider>
-              <App />
+              <UploadsProvider>
+                <App />
+              </UploadsProvider>
             </PullsProvider>
           </WorkspaceProvider>
         </ConnectionProvider>

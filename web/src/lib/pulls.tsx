@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useApi } from "./connection";
 
@@ -27,6 +27,13 @@ export function PullsProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [pulls, setPulls] = useState<Record<string, PullState>>({});
   const controllers = useRef<Record<string, AbortController>>({});
+
+  // Unmounted (e.g. the backend changed): stop downloads instead of letting
+  // them run on, unseen, against the previous backend.
+  useEffect(() => {
+    const active = controllers.current;
+    return () => Object.values(active).forEach((c) => c.abort());
+  }, []);
 
   const update = (model: string, patch: Partial<PullState>) =>
     setPulls((prev) => {

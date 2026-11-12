@@ -19,6 +19,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      - run: npm test
       - run: npm run build   # type-checks, then builds
 
   python:

@@ -61,26 +61,28 @@ function SourceIcon({ type }: { type: string }) {
   return <FileText className={cls} />;
 }
 
-export function SourceList({ citations, highlighted }: { citations: Citation[]; highlighted: number | null }) {
+export const sourceId = (messageId: string, index: number) => `source-${messageId}-${index}`;
+
+export function SourceList({ messageId, citations, highlighted }: { messageId: string; citations: Citation[]; highlighted: number | null }) {
   if (!citations.length) return null;
   return (
     <div className="mt-4">
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Sources</p>
       <ul className="grid gap-2 sm:grid-cols-2">
         {citations.map((c) => (
-          <SourceCard key={c.index} citation={c} highlighted={c.index === highlighted} />
+          <SourceCard key={c.index} id={sourceId(messageId, c.index)} citation={c} highlighted={c.index === highlighted} />
         ))}
       </ul>
     </div>
   );
 }
 
-function SourceCard({ citation: c, highlighted }: { citation: Citation; highlighted: boolean }) {
+function SourceCard({ id, citation: c, highlighted }: { id: string; citation: Citation; highlighted: boolean }) {
   const [open, setOpen] = useState(false);
   const expanded = open || highlighted;
   return (
     <li
-      id={`source-${c.index}`}
+      id={id}
       className={cn(
         "rounded-lg border text-sm transition-colors",
         highlighted ? "border-brand-500 bg-brand-50/50 dark:bg-brand-500/10" : "border-zinc-200 dark:border-zinc-800",

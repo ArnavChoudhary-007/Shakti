@@ -1,24 +1,17 @@
-import { useCallback, useRef, useState, type DragEvent } from "react";
+import { useRef, useState, type DragEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, CheckCircle2, CopyCheck, FileText, Trash2, UploadCloud } from "lucide-react";
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, PageHeader, Progress, Spinner } from "@/components/ui";
-import { ApiError, type IngestJob } from "@/lib/api";
+import { useUploads, type Upload } from "@/lib/uploads";
 import { useApi } from "@/lib/connection";
 import { useWorkspace } from "@/lib/workspace";
 import { cn, formatBytes, formatDate } from "@/lib/utils";
 
 const ACCEPT = [
-  ".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".csv", ".txt", ".md", ".json",
-  ".eml", ".mbox", ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".mp4", ".png", ".jpg", ".jpeg",
+  ".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".csv", ".txt", ".md", ".markdown", ".json",
+  ".eml", ".mbox", ".pst", ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".opus", ".aac", ".mp4",
+  ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp",
 ].join(",");
-
-type Upload = {
-  id: string;
-  file: File;
-  workspace: string;
-  job: IngestJob | null;
-  error: string | null;
-};
 
 const STAGE_TEXT: Record<string, string> = {
   reading: "Reading the file",
@@ -26,13 +19,11 @@ const STAGE_TEXT: Record<string, string> = {
   saving: "Saving",
 };
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 export default function DocumentsPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const { workspace } = useWorkspace();
-  const [uploads, setUploads] = useState<Upload[]>([]);
+  const { uploads, addFiles, clearFinished } = useUploads();
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -45,36 +36,10 @@ export default function DocumentsPage() {
   const remove = useMutation({ mutationFn: api.deleteDocument, onSuccess: refresh });
   const clear = useMutation({ mutationFn: () => api.clearWorkspace(workspace), onSuccess: refresh });
 
-  const setUpload = (id: string, patch: Partial<Upload>) => setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
-
-  const uploadOne = useCallback(
-    async (u: Upload) => {
-      try {
-        let job = await api.upload(u.file, u.workspace);
-        setUpload(u.id, { job });
-        while (job.status === "queued" || job.status === "processing") {
-          await sleep(1000);
-          job = await api.ingestStatus(job.job_id);
-          setUpload(u.id, { job });
-        }
-        if (job.status === "done") refresh();
-      } catch (e) {
-        setUpload(u.id, { error: e instanceof ApiError ? e.message : (e as Error).message });
-      }
-    },
-    [api],
-  );
-
-  const addFiles = (files: FileList | File[]) => {
-    const fresh = Array.from(files).map((file) => ({ id: crypto.randomUUID(), file, workspace, job: null, error: null }));
-    setUploads((prev) => [...fresh, ...prev]);
-    fresh.forEach((u) => void uploadOne(u));
-  };
-
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files, workspace);
   };
 
   const list = docs.data?.documents ?? [];
@@ -109,7 +74,7 @@ export default function DocumentsPage() {
           accept={ACCEPT}
           className="hidden"
           onChange={(e) => {
-            if (e.target.files?.length) addFiles(e.target.files);
+            if (e.target.files?.length) addFiles(e.target.files, workspace);
             e.target.value = "";
           }}
         />
@@ -124,7 +89,7 @@ export default function DocumentsPage() {
           <CardHeader
             title="Uploads"
             description={active.length ? `${active.length} in progress — you can keep using Shakti meanwhile.` : "All done."}
-            action={!active.length && <Button variant="ghost" size="sm" onClick={() => setUploads([])}>Clear list</Button>}
+            action={!active.length && <Button variant="ghost" size="sm" onClick={clearFinished}>Clear list</Button>}
           />
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {uploads.map((u) => <UploadRow key={u.id} upload={u} />)}
@@ -217,6 +182,8 @@ function UploadRow({ upload: u }: { upload: Upload }) {
     icon = <AlertCircle className="h-4 w-4 text-red-600" />;
     text = u.error || job?.error || "Failed";
     tone = "danger";
+  } else if (u.pollError) {
+    text = u.pollError;
   } else if (job?.status === "done" && job.duplicate) {
     icon = <CopyCheck className="h-4 w-4 text-zinc-500" />;
     text = "Already in this workspace — skipped";
@@ -239,7 +206,7 @@ function UploadRow({ upload: u }: { upload: Upload }) {
           {text}
           {u.workspace && <span className="text-zinc-400"> · {u.workspace}</span>}
         </p>
-        {job?.status === "processing" && <Progress className="mt-1.5 h-1" value={null} />}
+        {!u.error && job?.status === "processing" && <Progress className="mt-1.5 h-1" value={null} />}
       </div>
       <span className="text-xs tabular-nums text-zinc-400">{formatBytes(u.file.size)}</span>
     </li>

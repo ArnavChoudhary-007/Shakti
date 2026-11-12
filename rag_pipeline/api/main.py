@@ -476,7 +476,7 @@ async def list_models():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Cannot reach Ollama: {e}")
 
-@app.delete("/ollama/models/{model_name}", tags=["System"])
+@app.delete("/ollama/models/{model_name:path}", tags=["System"])
 async def delete_model(model_name: str):
     """Delete a downloaded model from Ollama."""
     try:

@@ -85,6 +85,7 @@ companion so no pairing is needed.
 
 **Tests:** `python -m pytest rag_pipeline/tests` (no Ollama needed — the API
 end-to-end test stubs the model and uses a temporary data folder), and
+`npm test` in `web/` (frontend regression tests with a mocked companion), and
 `npm run build` in `web/` (type-checks then builds).
 
 ## Trying it with the sample data
@@ -97,6 +98,11 @@ Upload all three on the **Documents** page, then ask:
   → BrightPack Supplies, $842,000/year, citing the memo.
 - *"What is the total amount of expenses paid to BrightPack Supplies in the ledger?"*
   → answered from the spreadsheet rows, with the total computed exactly.
+
+Upload tracking survives navigation between pages and workspaces. Temporary
+status-check failures retry automatically without uploading the file again.
+Tracking is held in memory, so a full page reload clears it. If the companion
+restarts and loses a job, check the document list before uploading again.
 
 Spreadsheet and invoice totals are calculated in SQLite over **all matching
 rows** in the workspace, before limiting the row preview. The model sees up to

@@ -190,12 +190,15 @@ export function createApi(conn: Connection) {
     async pullModel(name: string, onProgress: (p: { status: string; total?: number; completed?: number }) => void, signal?: AbortSignal) {
       const res = await fetch(url("/ollama/pull"), { ...json("POST", { model: name }), headers: headers({ "Content-Type": "application/json" }), signal });
       if (!res.ok || !res.body) throw await errorFrom(res);
+      let completed = false;
       for await (const line of readLines(res.body)) {
         if (!line.trim()) continue;
         const msg = JSON.parse(line);
         if (msg.error) throw new ApiError(500, msg.error);
         onProgress(msg);
+        if (msg.status === "success") completed = true;
       }
+      if (!completed) throw new ApiError(502, "Model download was interrupted before completion. Please retry the download.");
     },
 
     workspaces: () => request<{ workspaces: { workspace_id: string; document_count: number }[] }>("/workspaces"),
@@ -203,13 +206,13 @@ export function createApi(conn: Connection) {
     deleteDocument: (fileKey: string) => request<{ status: string }>(`/documents/${encodeURIComponent(fileKey)}`, { method: "DELETE" }),
     clearWorkspace: (workspace: string) => request<{ status: string }>(`/system/clear?workspace_id=${encodeURIComponent(workspace)}`, { method: "DELETE" }),
 
-    async upload(file: File, workspace: string): Promise<IngestJob> {
+    async upload(file: File, workspace: string, signal?: AbortSignal): Promise<IngestJob> {
       const form = new FormData();
       form.append("file", file);
       form.append("workspace_id", workspace);
-      return request<IngestJob>("/ingest", { method: "POST", body: form });
+      return request<IngestJob>("/ingest", { method: "POST", body: form, signal });
     },
-    ingestStatus: (jobId: string) => request<IngestJob>(`/ingest/status/${jobId}`),
+    ingestStatus: (jobId: string, signal?: AbortSignal) => request<IngestJob>(`/ingest/status/${jobId}`, { signal }),
 
     graph: (workspace: string) => request<GraphData>(`/knowledge_graph?workspace_id=${encodeURIComponent(workspace)}`),
     buildGraph: (workspace: string) => request<GraphBuild>(`/knowledge_graph/build?workspace_id=${encodeURIComponent(workspace)}`, json("POST")),

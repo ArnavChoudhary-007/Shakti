@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { ApiError, createApi, type Api, type Version } from "./api";
 import { DEFAULT_COMPANION_URL } from "./config";
 
@@ -93,11 +94,35 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     setRemoteUrl(u);
   }, []);
 
+  // Cached answers belong to one backend. Query keys name the resource and the
+  // workspace but not the server, so switching the companion address (or its
+  // pairing token) would otherwise keep showing, and never refetch, the
+  // previous backend's documents. Each backend therefore gets its own cache.
+  const parentClient = useQueryClient();
+  const backendId = `${mode}|${baseUrl}|${mode === "companion" ? "" : (token ?? "")}`;
+  const queryClient = useMemo(
+    () => new QueryClient({ defaultOptions: parentClient.getDefaultOptions() }),
+    // backendId is deliberately the dependency: a new backend means a new cache.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [parentClient, backendId],
+  );
+  useEffect(() => () => queryClient.clear(), [queryClient]);
+
   const value = useMemo(
     () => ({ phase, mode, baseUrl, version, api, retry, setToken, setBaseUrl }),
     [phase, mode, baseUrl, version, api, retry, setToken, setBaseUrl],
   );
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  // The same goes for state kept outside the query cache (uploads in progress,
+  // model downloads, open conversations): keying the subtree by backend
+  // remounts it, so nothing started against the old backend stays on screen
+  // or keeps talking to it.
+  return (
+    <QueryClientProvider client={queryClient}>
+      <Ctx.Provider value={value}>
+        <Fragment key={backendId}>{children}</Fragment>
+      </Ctx.Provider>
+    </QueryClientProvider>
+  );
 }
 
 export function useConnection(): ConnectionState {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUp, Database, MessageSquare, RotateCcw, Square, Upload } from "lucide-react";
-import { AnswerMarkdown, SourceList } from "@/components/Answer";
+import { AnswerMarkdown, SourceList, sourceId } from "@/components/Answer";
 import { Alert, Button, EmptyState, Spinner } from "@/components/ui";
 import type { Answer, ChatTurn } from "@/lib/api";
 import { useApi } from "@/lib/connection";
@@ -194,7 +194,7 @@ export default function ChatPage() {
                       highlighted={highlight?.msg === m.id ? highlight.n : null}
                       onCite={(n) => {
                         setHighlight({ msg: m.id, n });
-                        setTimeout(() => document.getElementById(`source-${n}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
+                        setTimeout(() => document.getElementById(sourceId(m.id, n))?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
                       }}
                     />
                   </li>
@@ -274,7 +274,7 @@ function AssistantMessage({ message: m, highlighted, onCite }: { message: Extrac
           <Database className="h-3.5 w-3.5" /> Answered from your spreadsheet and invoice data
         </p>
       )}
-      {!notFound && <SourceList citations={citations} highlighted={highlighted} />}
+      {!notFound && <SourceList messageId={m.id} citations={citations} highlighted={highlighted} />}
     </div>
   );
 }

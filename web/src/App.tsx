@@ -1,9 +1,10 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppLayout, Logo } from "@/components/Layout";
-import { Spinner } from "@/components/ui";
+import { Alert, Button, Spinner } from "@/components/ui";
 import { useConnection } from "@/lib/connection";
-import { useSetupComplete } from "@/lib/queries";
+import { useSetupStatus } from "@/lib/queries";
+import { searchModelsReady } from "@/lib/api";
 import LandingPage from "@/pages/Landing";
 import { ConnectPage, PairPage } from "@/pages/Pair";
 import SetupPage from "@/pages/Setup";
@@ -27,8 +28,17 @@ function Splash() {
 }
 
 function Home() {
-  const complete = useSetupComplete();
-  if (complete === undefined) return <Splash />;
+  const status = useSetupStatus();
+  if (status.isError) {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-8">
+        <Alert tone="danger" title="Couldn't check setup status">{status.error.message}</Alert>
+        <Button className="mt-4" loading={status.isFetching} onClick={() => void status.refetch()}>Retry</Button>
+      </div>
+    );
+  }
+  if (!status.data) return <Splash />;
+  const complete = status.data.running && status.data.chat_model_installed && searchModelsReady(status.data);
   return <Navigate to={complete ? "/chat" : "/setup"} replace />;
 }
 
