@@ -3,6 +3,25 @@ import { createApi } from "./api";
 
 const api = createApi({ baseUrl: "http://companion.test", token: "paired-token" });
 
+it("requests original-file grants with pairing and workspace identity", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(Response.json({ path: "/documents/file-1/content?view_token=temporary", file_name: "report.pdf", previewable: true, matched_by_name: false }));
+  vi.stubGlobal("fetch", fetchMock);
+  const result = await api.originalFile("workspace a", { index: 1, file_key: "file-1", file_name: "report.pdf", location: "page 3", full_text: "excerpt", source_type: "pdf", sender: null });
+  expect(result.url).toBe("http://companion.test/documents/file-1/content?view_token=temporary");
+  expect(fetchMock).toHaveBeenCalledWith("http://companion.test/documents/original", expect.objectContaining({
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Shakti-Token": "paired-token" },
+    body: JSON.stringify({ workspace_id: "workspace a", file_key: "file-1", file_name: "report.pdf" }),
+  }));
+  expect(result.url).not.toContain("paired-token");
+});
+
+it("keeps original links same-origin for the companion-hosted UI", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ path: "/documents/file-1/content?view_token=temporary", file_name: "report.pdf", previewable: true, matched_by_name: true })));
+  const result = await createApi({ baseUrl: "", token: null }).originalFile("default", { index: 1, file_name: "report.pdf", location: "", full_text: "", source_type: "pdf", sender: null });
+  expect(result.url).toBe("/documents/file-1/content?view_token=temporary");
+});
+
 function streamResponse(...chunks: string[]) {
   return new Response(new ReadableStream({
     start(controller) {

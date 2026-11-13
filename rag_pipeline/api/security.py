@@ -62,17 +62,28 @@ def is_local_request(request: Request, local: Set[str]) -> bool:
 
 
 class CompanionGuard(BaseHTTPMiddleware):
-    def __init__(self, app, *, local: Set[str], web: Set[str], token_provider):
+    def __init__(self, app, *, local: Set[str], web: Set[str], token_provider, file_view_tokens=None):
         super().__init__(app)
         self.local = local
         self.web = web
         self.token_provider = token_provider
+        self.file_view_tokens = file_view_tokens
 
     async def dispatch(self, request: Request, call_next):
         host = request.headers.get("host", "")
         hostname = host.rsplit(":", 1)[0] if not host.startswith("[") else host.split("]")[0] + "]"
         if hostname not in _ALLOWED_HOSTS:
             return JSONResponse({"detail": "Invalid Host header."}, status_code=400)
+
+        if "view_token" in request.query_params:
+            origin = request.headers.get("origin")
+            if (
+                self.file_view_tokens
+                and (origin is None or origin in self.local | self.web)
+                and self.file_view_tokens.permits(request)
+            ):
+                return await call_next(request)
+            return JSONResponse({"detail": "This original-file link is invalid or expired. Open it again from Sources."}, status_code=403)
 
         if is_local_request(request, self.local):
             return await call_next(request)

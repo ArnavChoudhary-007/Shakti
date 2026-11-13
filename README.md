@@ -58,6 +58,22 @@ companion on your PC. Before it can do anything it must be **paired**: open
 Shakti → Settings → *Connect the website*. Every other website is refused —
 see [Security](#security).
 
+## Opening citation originals
+
+Citation numbers still reveal the source excerpt. Each source card also has an
+**Open original** action: PDFs open in a new tab at the cited page when available;
+images and plain text preview in the browser, while unsupported or active formats
+(including Office files, HTML and SVG) download instead.
+
+Originals are served on demand from the companion's retained upload storage,
+scoped to the document ID and active workspace. The paired website requests a
+short-lived (10-minute) file-only link; the pairing token is never put in the URL.
+Links expire on companion restart, and deleted or non-retained originals remain
+unavailable without affecting the saved excerpt. Older citations without an ID
+can match one exact filename in their workspace, with a warning that it may be a
+newer version; ambiguous matches are refused. Allow pop-ups for the UI to open
+originals. Viewing originals does not rerun ingestion, embeddings or inference.
+
 ## Developer setup
 
 Requirements: Python 3.10–3.12 (the installer uses 3.12; 3.9 still runs the

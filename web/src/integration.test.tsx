@@ -11,7 +11,7 @@ import { createApi, type Api, type IngestJob, type SetupStatus } from "./lib/api
 import { PullsProvider, usePulls } from "./lib/pulls";
 import { UploadsProvider, useUploads } from "./lib/uploads";
 import { WorkspaceProvider, useWorkspace } from "./lib/workspace";
-import { sourceId } from "./components/Answer";
+import { SourceList, sourceId } from "./components/Answer";
 import { graphFixture } from "./test/graph-fixture";
 
 let api: Api;
@@ -581,6 +581,79 @@ it("includes all supported upload formats but not unsupported legacy Office form
     ".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".csv", ".mbox", ".eml", ".pst", ".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".mp4",
     ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".json", ".txt", ".md", ".markdown",
   ].sort());
+});
+
+const originalCitation = { index: 1, file_key: "file-1", file_name: "report.pdf", location: "page 3 of 10", full_text: "Saved source excerpt", source_type: "pdf", sender: null };
+
+function originalTab() {
+  const tab = { opener: {}, location: { replace: vi.fn() }, close: vi.fn() };
+  vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+  return tab;
+}
+
+it("opens a PDF original at its cited page without changing the excerpt toggle", async () => {
+  const tab = originalTab();
+  let body: unknown;
+  const fallback = respond;
+  respond = (url, init) => {
+    if (url.pathname !== "/documents/original") return fallback(url, init);
+    body = JSON.parse(init!.body as string);
+    return Response.json({ path: "/documents/file-1/content?view_token=short", file_name: "report.pdf", previewable: true, matched_by_name: false });
+  };
+  await mount(<SourceList messageId="answer" citations={[originalCitation]} highlighted={null} />);
+  await act(async () => workspace.setWorkspace("research"));
+  await click("Open original");
+  expect(window.open).toHaveBeenCalledWith("about:blank", "_blank");
+  expect(tab.opener).toBeNull();
+  expect(body).toEqual({ workspace_id: "research", file_key: "file-1", file_name: "report.pdf" });
+  expect(tab.location.replace).toHaveBeenCalledWith("http://companion.test/documents/file-1/content?view_token=short#page=3");
+  expect(tab.close).not.toHaveBeenCalled();
+  expect(container.textContent).toContain("Opened original in a new tab.");
+  expect(container.textContent).not.toContain(originalCitation.full_text);
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
+  expect(container.textContent).toContain(originalCitation.full_text);
+});
+
+it("warns when older citations use filename matching and retains the excerpt", async () => {
+  const tab = originalTab();
+  const citation = { ...originalCitation, file_key: undefined };
+  respond = () => Response.json({ path: "/documents/file-1/content?view_token=short", file_name: "report.pdf", previewable: true, matched_by_name: true });
+  await mount(<SourceList messageId="old" citations={[citation]} highlighted={1} />);
+  await click("Open original");
+  expect(tab.location.replace).toHaveBeenCalled();
+  expect(container.textContent).toContain("stored file may be newer");
+  expect(container.textContent).toContain(citation.full_text);
+});
+
+it("starts unsupported original downloads without a PDF page fragment", async () => {
+  const tab = originalTab();
+  respond = () => Response.json({ path: "/documents/file-1/content?view_token=short", file_name: "report.docx", previewable: false, matched_by_name: false });
+  await mount(<SourceList messageId="word" citations={[{ ...originalCitation, file_name: "report.docx" }]} highlighted={null} />);
+  await click("Open original");
+  expect(tab.location.replace).toHaveBeenCalledWith("http://companion.test/documents/file-1/content?view_token=short");
+  expect(container.textContent).toContain("Original download started");
+});
+
+it.each(["This source is no longer available", "More than one original matches this older citation"])("keeps excerpts usable when originals fail: %s", async (message) => {
+  const tab = originalTab();
+  respond = () => Response.json({ detail: message }, { status: 404 });
+  await mount(<SourceList messageId="missing" citations={[originalCitation]} highlighted={null} />);
+  await click("Open original");
+  expect(tab.close).toHaveBeenCalledOnce();
+  expect(tab.location.replace).not.toHaveBeenCalled();
+  expect(container.querySelector('[role="alert"]')!.textContent).toContain(message);
+  expect(container.textContent).toContain(originalCitation.full_text);
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Open original: report.pdf"]')!.disabled).toBe(false);
+});
+
+it("explains popup blocking and expands the excerpt without requesting a file", async () => {
+  vi.spyOn(window, "open").mockReturnValue(null);
+  await mount(<SourceList messageId="blocked" citations={[originalCitation]} highlighted={null} />);
+  vi.mocked(fetch).mockClear();
+  await click("Open original");
+  expect(fetch).not.toHaveBeenCalled();
+  expect(container.querySelector('[role="alert"]')!.textContent).toContain("blocked the new tab");
+  expect(container.textContent).toContain(originalCitation.full_text);
 });
 
 it("scrolls to the clicked answer's source when two messages both cite [1]", async () => {

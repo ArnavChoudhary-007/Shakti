@@ -36,6 +36,7 @@ class Citation:
     full_text: str        # complete text of the source chunk
     source_type: str = ""
     sender: Optional[str] = None
+    file_key: Optional[str] = None
 
 
 @dataclass
@@ -203,6 +204,7 @@ def _citation_for(index: int, chunk: Dict[str, Any]) -> Citation:
         full_text=chunk.get("text", "").strip(),
         source_type=source_type,
         sender=sender,
+        file_key=meta.get("file_key") if isinstance(meta.get("file_key"), str) else None,
     )
 
 

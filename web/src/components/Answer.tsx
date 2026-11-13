@@ -4,6 +4,8 @@ import remarkGfm from "remark-gfm";
 import { ChevronDown, Database, FileAudio, FileSpreadsheet, FileText, Mail, MessageCircle } from "lucide-react";
 import type { Citation } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useApi } from "@/lib/connection";
+import { useWorkspace } from "@/lib/workspace";
 
 // [3] → [3](cite:3) so the markdown renderer hands us a link we can turn
 // into a citation pill. Skips "[3](" (already a link) and "[3]:" (ref def).
@@ -78,8 +80,43 @@ export function SourceList({ messageId, citations, highlighted }: { messageId: s
 }
 
 function SourceCard({ id, citation: c, highlighted }: { id: string; citation: Citation; highlighted: boolean }) {
+  const api = useApi();
+  const { workspace } = useWorkspace();
   const [open, setOpen] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const expanded = open || highlighted;
+
+  async function openOriginal() {
+    setError(null);
+    setNotice(null);
+    const tab = window.open("about:blank", "_blank");
+    if (!tab) {
+      setOpen(true);
+      setError("Your browser blocked the new tab. Allow pop-ups for this site and try again. The excerpt is available below.");
+      return;
+    }
+    tab.opener = null;
+    setOpening(true);
+    try {
+      const original = await api.originalFile(workspace, c);
+      const page = /\bpage\s+(\d+)\b/i.exec(c.location)?.[1];
+      const pageNumber = page ? Number(page) : 0;
+      const fragment = /\.pdf$/i.test(original.file_name) && Number.isSafeInteger(pageNumber) && pageNumber > 0 ? `#page=${pageNumber}` : "";
+      tab.location.replace(`${original.url}${fragment}`);
+      setNotice([
+        original.previewable ? "Opened original in a new tab." : "Original download started; this format cannot be previewed here.",
+        original.matched_by_name ? "Older citation matched by filename; the stored file may be newer than this answer." : "",
+      ].filter(Boolean).join(" "));
+    } catch (cause) {
+      tab.close();
+      setOpen(true);
+      setError(cause instanceof Error ? cause.message : "Couldn't open the original. The excerpt is still available.");
+    } finally {
+      setOpening(false);
+    }
+  }
   return (
     <li
       id={id}
@@ -100,6 +137,13 @@ function SourceCard({ id, citation: c, highlighted }: { id: string; citation: Ci
         </span>
         <ChevronDown className={cn("h-4 w-4 shrink-0 text-zinc-400 transition-transform", expanded && "rotate-180")} />
       </button>
+      <div className="px-3 pb-2">
+        <button type="button" onClick={openOriginal} disabled={opening} className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-50 dark:text-brand-100" aria-label={`Open original: ${c.file_name}`}>
+          {opening ? "Opening original..." : "Open original"}
+        </button>
+        {error && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+        {notice && <p role="status" className="mt-1 text-xs text-zinc-500">{notice}</p>}
+      </div>
       {expanded && (
         <p className="max-h-64 overflow-y-auto whitespace-pre-wrap border-t border-zinc-100 px-3 py-2 text-[13px] leading-6 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
           {c.full_text}

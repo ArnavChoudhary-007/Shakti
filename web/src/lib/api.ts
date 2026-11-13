@@ -94,6 +94,7 @@ export type Citation = {
   full_text: string;
   source_type: string;
   sender: string | null;
+  file_key?: string | null;
 };
 
 export type Answer = {
@@ -175,6 +176,13 @@ export function createApi(conn: Connection) {
   });
 
   return {
+    async originalFile(workspace: string, citation: Citation) {
+      const result = await request<{ path: string; file_name: string; previewable: boolean; matched_by_name: boolean }>(
+        "/documents/original",
+        json("POST", { workspace_id: workspace, file_key: citation.file_key, file_name: citation.file_name }),
+      );
+      return { ...result, url: url(result.path) };
+    },
     version: () => request<Version>("/version"),
     pairToken: () => request<{ token: string; web_origins: string[] }>("/pair/token"),
     settings: () => request<Settings>("/settings"),

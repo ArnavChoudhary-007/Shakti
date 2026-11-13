@@ -20,18 +20,20 @@ import hashlib
 import json
 import shutil
 import logging
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from urllib.parse import urlencode
 
 import httpx
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -41,6 +43,7 @@ _ROOT = Path(__file__).parent.parent
 
 from rag_pipeline import __version__, get_config, get_data_dir
 from rag_pipeline import settings as user_settings
+from rag_pipeline.api.file_access import FileViewTokens
 from rag_pipeline.api.security import (
     TOKEN_HEADER,
     CompanionGuard,
@@ -237,17 +240,20 @@ app = FastAPI(
 # Order matters: the last middleware added is the outermost, so CORS answers
 # preflight requests before the guard (which would reject them for lacking a
 # token) ever sees them.
+_file_view_tokens = FileViewTokens()
+
 app.add_middleware(
     CompanionGuard,
     local=_LOCAL_ORIGINS,
     web=_WEB_ORIGINS,
     token_provider=user_settings.get_pairing_token,
+    file_view_tokens=_file_view_tokens,
 )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(_LOCAL_ORIGINS, _WEB_ORIGINS),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["GET", "HEAD", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type", TOKEN_HEADER],
 )
 
@@ -271,6 +277,7 @@ class CitationOut(BaseModel):
     full_text: str
     source_type: str
     sender: Optional[str] = None
+    file_key: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
@@ -1055,6 +1062,78 @@ async def delete_document(file_key: str):
     async with _INGEST_SEMAPHORE:
         await asyncio.to_thread(_delete_document, doc)
     return {"status": "deleted", "file_key": file_key}
+
+
+class OriginalFileRequest(BaseModel):
+    workspace_id: str = Field(default="default", min_length=1, max_length=256)
+    file_key: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    file_name: Optional[str] = Field(default=None, min_length=1, max_length=1024)
+
+
+def _original_file(file_key: str, workspace_id: str):
+    document = _get_struct_db().get_document(file_key)
+    if not document or document["workspace_id"] != workspace_id:
+        raise HTTPException(status_code=404, detail="This source is no longer available in this workspace. The excerpt is still available.")
+    file_name = document["file_name"]
+    if (
+        not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", file_key)
+        or not file_name
+        or file_name in {".", ".."}
+        or any(character in file_name for character in '/\\:')
+        or any(ord(character) < 32 for character in file_name)
+    ):
+        raise HTTPException(status_code=404, detail="The retained original is unavailable. The excerpt is still available.")
+    root = _UPLOAD_DIR.resolve()
+    directory = (root / file_key).resolve()
+    path = (directory / file_name).resolve()
+    if directory != root / file_key or path != directory / file_name or not path.is_file():
+        raise HTTPException(status_code=404, detail="The original file was not retained or has been removed. The excerpt is still available.")
+    inline_types = {
+        ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
+        ".bmp": "image/bmp", ".txt": "text/plain", ".md": "text/plain",
+        ".markdown": "text/plain", ".json": "text/plain",
+    }
+    media_type = inline_types.get(path.suffix.lower())
+    return document, path, media_type
+
+
+@app.post("/documents/original", tags=["Ingestion"])
+def original_file_link(body: OriginalFileRequest):
+    file_key = body.file_key
+    if not file_key:
+        if not body.file_name:
+            raise HTTPException(status_code=422, detail="A source identifier or filename is required.")
+        matches = _get_struct_db().find_documents_by_name(body.workspace_id, body.file_name)
+        if len(matches) > 1:
+            raise HTTPException(status_code=409, detail="More than one original matches this older citation. Use the excerpt instead.")
+        if not matches:
+            raise HTTPException(status_code=404, detail="This older citation has no retained original. The excerpt is still available.")
+        file_key = matches[0]["file_key"]
+    document, path, media_type = _original_file(file_key, body.workspace_id)
+    query = urlencode({"workspace_id": body.workspace_id, "view_token": _file_view_tokens.issue(file_key, body.workspace_id)})
+    return JSONResponse({
+        "path": f"/documents/{file_key}/content?{query}",
+        "file_name": document["file_name"],
+        "previewable": media_type is not None,
+        "matched_by_name": body.file_key is None,
+    }, headers={"Cache-Control": "no-store"})
+
+
+@app.api_route("/documents/{file_key}/content", methods=["GET", "HEAD"], tags=["Ingestion"])
+def original_file_content(file_key: str, workspace_id: str = Query("default")):
+    document, path, media_type = _original_file(file_key, workspace_id)
+    return FileResponse(
+        path,
+        media_type=media_type or "application/octet-stream",
+        filename=document["file_name"],
+        content_disposition_type="inline" if media_type else "attachment",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 # ── /knowledge_graph ──────────────────────────────────────────
