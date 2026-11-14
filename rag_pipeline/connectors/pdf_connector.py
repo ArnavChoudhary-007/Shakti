@@ -41,6 +41,47 @@ except ImportError:
     _HAS_OCR = False
     logger.warning("Pillow/pytesseract not installed — OCR fallback disabled.")
 
+
+_rapid_ocr_engine = None
+
+def _get_rapid_ocr():
+    """Lazily load RapidOCR (pure ONNX CPU engine, no external install required)."""
+    global _rapid_ocr_engine
+    if _rapid_ocr_engine is None:
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            _rapid_ocr_engine = RapidOCR()
+        except Exception as e:
+            logger.debug("RapidOCR unavailable: %s", e)
+            _rapid_ocr_engine = False
+    return _rapid_ocr_engine if _rapid_ocr_engine is not False else None
+
+
+def _has_tesseract_binary() -> bool:
+    """Check if the tesseract CLI binary is installed and callable."""
+    if not _HAS_OCR:
+        return False
+    import shutil
+    if shutil.which("tesseract"):
+        return True
+    for candidate in [
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
+    ]:
+        if os.path.isfile(candidate):
+            try:
+                pytesseract.pytesseract.tesseract_cmd = candidate
+                return True
+            except Exception:
+                pass
+    return False
+
+
+def _has_ocr_available() -> bool:
+    """Return True if either RapidOCR or Tesseract is ready to use."""
+    return (_get_rapid_ocr() is not None) or (_HAS_OCR and _has_tesseract_binary())
+
 try:
     from docx import Document as DocxDocument
     _HAS_DOCX = True
@@ -62,13 +103,39 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────
 
 def _ocr_page(page: Any) -> str:
-    """Render a fitz page to an image and run Tesseract OCR."""
-    if not _HAS_OCR:
-        return ""
-    mat = fitz.Matrix(2.0, 2.0)          # 2x zoom for better OCR accuracy
-    pix = page.get_pixmap(matrix=mat)
-    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-    return pytesseract.image_to_string(img)
+    """Render a fitz page to an image and run OCR (RapidOCR first, Tesseract fallback)."""
+    # Scale dynamically to keep maximum dimension around 1200-1500px for speed and clarity
+    rect = page.rect
+    max_dim = max(rect.width, rect.height)
+    if max_dim >= 1200:
+        zoom = 1.0
+    elif max_dim >= 750:
+        zoom = 1.5
+    else:
+        zoom = 2.0
+    mat = fitz.Matrix(zoom, zoom)
+
+    # 1. RapidOCR (fast, self-contained, high accuracy)
+    ocr = _get_rapid_ocr()
+    if ocr is not None:
+        try:
+            pix = page.get_pixmap(matrix=mat)
+            res, _ = ocr(pix.tobytes("png"))
+            if res:
+                return "\n".join([line[1] for line in res if line and len(line) > 1])
+        except Exception as exc:
+            logger.warning("RapidOCR failed on page (%s) — trying fallback.", exc)
+
+    # 2. Tesseract OCR fallback
+    if _HAS_OCR and _has_tesseract_binary():
+        try:
+            pix = page.get_pixmap(matrix=mat)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            return pytesseract.image_to_string(img)
+        except Exception as exc:
+            logger.warning("Tesseract OCR failed on page (%s) — skipping OCR.", exc)
+
+    return ""
 
 
 def _is_scanned_page(page: Any, min_chars: int = 30) -> bool:
@@ -95,12 +162,17 @@ def extract_pdf(
     total_pages = len(doc)
 
     for page_num, page in enumerate(doc, start=1):
-        text = page.get_text("text").strip()
+        digital_text = page.get_text("text").strip()
+        text = digital_text
         used_ocr = False
 
-        if use_ocr and _is_scanned_page(page):
-            text = _ocr_page(page).strip()
-            used_ocr = True
+        if use_ocr and _is_scanned_page(page) and _has_ocr_available():
+            ocr_text = _ocr_page(page).strip()
+            if ocr_text:
+                text = ocr_text
+                used_ocr = True
+            elif digital_text:
+                text = digital_text
 
         if not text:
             logger.debug("Page %d/%d has no text — skipping.", page_num, total_pages)

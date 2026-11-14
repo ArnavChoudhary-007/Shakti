@@ -21,8 +21,20 @@ import pickle
 import sqlite3
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
+
+from rag_pipeline.structured_db.dates import parse_date
+from rag_pipeline.structured_db.numeric import as_number, format_summary, is_identifier
+
+
+@dataclass
+class QueryContext:
+    rows: List[Dict[str, Any]] = field(default_factory=list)
+    total_count: int = 0
+    file_names: List[str] = field(default_factory=list)
+    numeric_summary: List[str] = field(default_factory=list)
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +66,10 @@ CREATE TABLE IF NOT EXISTS invoices (
     file_path       TEXT,
     vendor          TEXT,
     invoice_number  TEXT,
-    invoice_date    TEXT,
+    invoice_date    TEXT,               -- as written on the invoice
     due_date        TEXT,
+    invoice_date_iso TEXT,              -- YYYY-MM-DD, used for filtering and sorting
+    due_date_iso    TEXT,
     total_amount    REAL,
     currency        TEXT DEFAULT 'USD',
     bill_to         TEXT,
@@ -101,14 +115,34 @@ CREATE INDEX IF NOT EXISTS idx_ledger_docid     ON ledger_records(doc_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_sheet     ON ledger_records(sheet_name);
 
 CREATE TABLE IF NOT EXISTS kg_nodes (
-    id              TEXT PRIMARY KEY,
+    id              TEXT NOT NULL,
+    workspace_id    TEXT NOT NULL DEFAULT 'default',
     label           TEXT NOT NULL,
     type            TEXT,
     description     TEXT,
     community       INTEGER,
     centrality      REAL,
-    ingested_at     TEXT DEFAULT (datetime('now'))
+    ingested_at     TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (id, workspace_id)
 );
+
+-- One row per ingested file. file_key prefixes every doc_id / chunk_id the
+-- file produced, so a file can be found, de-duplicated, and deleted as a unit.
+CREATE TABLE IF NOT EXISTS documents (
+    file_key        TEXT PRIMARY KEY,
+    workspace_id    TEXT NOT NULL DEFAULT 'default',
+    file_name       TEXT NOT NULL,
+    content_hash    TEXT NOT NULL,
+    size_bytes      INTEGER,
+    source_types    TEXT,
+    doc_count       INTEGER DEFAULT 0,
+    chunk_count     INTEGER DEFAULT 0,
+    legacy          INTEGER DEFAULT 0,   -- ingested before this table existed
+    ingested_at     TEXT DEFAULT (datetime('now')),
+    UNIQUE (workspace_id, content_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_workspace ON documents(workspace_id);
 
 CREATE TABLE IF NOT EXISTS kg_edges (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -176,15 +210,18 @@ class StructuredDB:
     Thread-safe via connection-per-call pattern.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, day_first: bool = False):
         self.db_path = str(Path(db_path).resolve())
+        self.day_first = day_first     # how to read ambiguous dates like 05/03/2024
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
     @contextmanager
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
+        # Per-connection setting: without it ON DELETE CASCADE never fires.
+        conn.execute("PRAGMA foreign_keys=ON")
         try:
             yield conn
             conn.commit()
@@ -230,23 +267,65 @@ class StructuredDB:
                 conn.execute("ALTER TABLE kg_edges ADD COLUMN is_pruned BOOLEAN DEFAULT 0")
             except sqlite3.OperationalError: pass
 
+            for column in ("invoice_date_iso", "due_date_iso"):
+                try:
+                    conn.execute(f"ALTER TABLE invoices ADD COLUMN {column} TEXT")
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_invoices_date_iso ON invoices(workspace_id, invoice_date_iso)")
+            self._backfill_iso_dates(conn)
+
+            self._migrate_kg_nodes_to_workspaces(conn)
+
         logger.info("Structured DB initialised at %s", self.db_path)
 
-    def clear_workspace(self, workspace_id: str = "default") -> None:
-        """Removes all structured data associated with a specific workspace."""
-        with self._connect() as conn:
-            conn.execute("DELETE FROM invoices WHERE workspace_id = ?", (workspace_id,))
-            conn.execute("DELETE FROM ledger_records WHERE workspace_id = ?", (workspace_id,))
-            conn.execute("DELETE FROM kg_edges WHERE workspace_id = ?", (workspace_id,))
-            conn.execute("DELETE FROM kg_communities WHERE workspace_id = ?", (workspace_id,))
-            conn.execute("DELETE FROM kg_pending_docs WHERE workspace_id = ?", (workspace_id,))
-            # Delete orphaned nodes
-            conn.execute("""
-                DELETE FROM kg_nodes 
-                WHERE id NOT IN (SELECT source FROM kg_edges) 
-                  AND id NOT IN (SELECT target FROM kg_edges)
-            """)
-        logger.info("Cleared StructuredDB data for workspace_id=%r", workspace_id)
+    def _iso(self, value: Any) -> Optional[str]:
+        return parse_date(value, day_first=self.day_first, fuzzy=True) if value else None
+
+    def _backfill_iso_dates(self, conn: sqlite3.Connection) -> None:
+        """Invoices stored before dates were normalized: parse their text dates once."""
+        rows = conn.execute(
+            "SELECT id, invoice_date, due_date FROM invoices "
+            "WHERE (invoice_date_iso IS NULL AND COALESCE(invoice_date, '') != '') "
+            "   OR (due_date_iso IS NULL AND COALESCE(due_date, '') != '')"
+        ).fetchall()
+        updates = [(self._iso(r["invoice_date"]), self._iso(r["due_date"]), r["id"]) for r in rows]
+        if updates:
+            conn.executemany("UPDATE invoices SET invoice_date_iso = ?, due_date_iso = ? WHERE id = ?", updates)
+            logger.info("Normalized dates on %d existing invoice(s).", len(updates))
+
+    @staticmethod
+    def _migrate_kg_nodes_to_workspaces(conn: sqlite3.Connection) -> None:
+        """
+        kg_nodes used to be global (PK id), so building one workspace's graph
+        overwrote another's communities. Rebuild it keyed by (id, workspace_id),
+        copying each node into every workspace whose edges reference it.
+        """
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(kg_nodes)")}
+        if "workspace_id" in cols:
+            return
+        logger.info("Migrating kg_nodes to per-workspace nodes...")
+        conn.executescript("""
+            ALTER TABLE kg_nodes RENAME TO kg_nodes_old;
+            CREATE TABLE kg_nodes (
+                id              TEXT NOT NULL,
+                workspace_id    TEXT NOT NULL DEFAULT 'default',
+                label           TEXT NOT NULL,
+                type            TEXT,
+                description     TEXT,
+                community       INTEGER,
+                centrality      REAL,
+                ingested_at     TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (id, workspace_id)
+            );
+            INSERT OR IGNORE INTO kg_nodes
+                (id, workspace_id, label, type, description, community, centrality, ingested_at)
+            SELECT n.id, w.ws, n.label, n.type, n.description, n.community, n.centrality, n.ingested_at
+            FROM kg_nodes_old n
+            JOIN (SELECT source AS id, workspace_id AS ws FROM kg_edges
+                  UNION SELECT target, workspace_id FROM kg_edges) w ON w.id = n.id;
+            DROP TABLE kg_nodes_old;
+        """)
 
     # ── Invoice CRUD ─────────────────────────────────────────
 
@@ -260,13 +339,16 @@ class StructuredDB:
             conn.execute("""
                 INSERT INTO invoices
                     (doc_id, file_name, file_path, vendor, invoice_number,
-                     invoice_date, due_date, total_amount, currency, bill_to, raw_text, workspace_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     invoice_date, due_date, invoice_date_iso, due_date_iso,
+                     total_amount, currency, bill_to, raw_text, workspace_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(doc_id) DO UPDATE SET
                     vendor=excluded.vendor,
                     invoice_number=excluded.invoice_number,
                     invoice_date=excluded.invoice_date,
                     due_date=excluded.due_date,
+                    invoice_date_iso=excluded.invoice_date_iso,
+                    due_date_iso=excluded.due_date_iso,
                     total_amount=excluded.total_amount,
                     currency=excluded.currency,
                     bill_to=excluded.bill_to,
@@ -278,6 +360,8 @@ class StructuredDB:
                 structured_data.get("invoice_number"),
                 structured_data.get("invoice_date"),
                 structured_data.get("due_date"),
+                self._iso(structured_data.get("invoice_date")),
+                self._iso(structured_data.get("due_date")),
                 total_amount,
                 structured_data.get("currency", "USD"),
                 structured_data.get("bill_to"),
@@ -314,6 +398,17 @@ class StructuredDB:
         workspace_id: str = "default",
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
+        sql, params = self._invoice_query(
+            vendor, date_from, date_to, min_amount, max_amount, invoice_number, workspace_id
+        )
+        with self._connect() as conn:
+            rows = conn.execute(sql + " LIMIT ?", [*params, limit]).fetchall()
+        return [dict(row) for row in rows]
+
+    def _invoice_query(
+        self, vendor=None, date_from=None, date_to=None, min_amount=None,
+        max_amount=None, invoice_number=None, workspace_id="default",
+    ) -> Tuple[str, List[Any]]:
         conditions: List[str] = ["workspace_id = ?"]
         params: List[Any] = [workspace_id]
 
@@ -323,12 +418,17 @@ class StructuredDB:
         if invoice_number:
             conditions.append("invoice_number LIKE ?")
             params.append(f"%{invoice_number}%")
-        if date_from:
-            conditions.append("invoice_date >= ?")
-            params.append(date_from)
-        if date_to:
-            conditions.append("invoice_date <= ?")
-            params.append(date_to)
+        # Compare real dates, not the text on the invoice ("April" < "March" as text).
+        # Bounds may be ISO (from the router) or free text from other callers.
+        for bound, op, end in ((date_from, ">=", False), (date_to, "<=", True)):
+            if not bound:
+                continue
+            iso = parse_date(bound, end=end, day_first=self.day_first)
+            if iso is None:
+                logger.warning("Ignoring unparseable date filter %r", bound)
+                continue
+            conditions.append(f"invoice_date_iso {op} ?")
+            params.append(iso)
         if min_amount is not None:
             conditions.append("total_amount >= ?")
             params.append(min_amount)
@@ -337,12 +437,7 @@ class StructuredDB:
             params.append(max_amount)
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        sql = f"SELECT * FROM invoices {where} ORDER BY invoice_date DESC LIMIT ?"
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [dict(r) for r in rows]
+        return f"SELECT * FROM invoices {where} ORDER BY invoice_date_iso IS NULL, invoice_date_iso DESC, id DESC", params
 
     def total_invoices(self, vendor: Optional[str] = None, workspace_id: str = "default") -> float:
         """Sum of total_amount, optionally filtered by vendor."""
@@ -364,6 +459,7 @@ class StructuredDB:
         sheet_name: str,
         records: List[Dict[str, Any]],
         file_path: Optional[str] = None,
+        workspace_id: str = "default",
     ) -> int:
         """Insert tabular rows from an Excel/CSV sheet. Returns row count inserted."""
         with self._connect() as conn:
@@ -373,7 +469,7 @@ class StructuredDB:
                 INSERT INTO ledger_records (doc_id, file_name, file_path, sheet_name, row_index, row_data, workspace_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, [
-                (doc_id, file_name, file_path, sheet_name, i, json.dumps(row), row.get("workspace_id", "default"))
+                (doc_id, file_name, file_path, sheet_name, i, json.dumps(row, default=str), workspace_id)
                 for i, row in enumerate(records)
             ])
         return len(records)
@@ -385,6 +481,19 @@ class StructuredDB:
         workspace_id: str = "default",
         limit: int = 200,
     ) -> List[Dict[str, Any]]:
+        sql, params = self._ledger_query(doc_id, sheet_name, workspace_id)
+        with self._connect() as conn:
+            rows = conn.execute(sql + " LIMIT ?", [*params, limit]).fetchall()
+        result = []
+        for row in rows:
+            record = dict(row)
+            record["row_data"] = json.loads(record["row_data"])
+            result.append(record)
+        return result
+
+    def _ledger_query(
+        self, doc_id=None, sheet_name=None, workspace_id="default", vendor=None,
+    ) -> Tuple[str, List[Any]]:
         conditions: List[str] = ["workspace_id = ?"]
         params: List[Any] = [workspace_id]
         if doc_id:
@@ -393,17 +502,71 @@ class StructuredDB:
         if sheet_name:
             conditions.append("sheet_name LIKE ?")
             params.append(f"%{sheet_name}%")
+        if vendor:
+            conditions.append(
+                "EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(row_data) THEN row_data "
+                "ELSE rag_json(row_data) END) "
+                "WHERE instr(lower(CAST(value AS TEXT)), lower(?)) > 0)"
+            )
+            params.append(vendor)
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        sql = f"SELECT * FROM ledger_records {where} ORDER BY row_index LIMIT ?"
-        params.append(limit)
+        return f"SELECT * FROM ledger_records {where} ORDER BY row_index", params
+
+    def query_answer_context(
+        self, query_type: str, filters: Dict[str, Any], workspace_id: str = "default", limit: int = 50,
+    ) -> QueryContext:
+        """Aggregate every matching row in SQLite; bound only the row preview."""
+        if query_type == "invoice":
+            sql, params = self._invoice_query(
+                vendor=filters.get("vendor"), date_from=filters.get("date_from"),
+                date_to=filters.get("date_to"), min_amount=filters.get("min_amount"),
+                max_amount=filters.get("max_amount"), invoice_number=filters.get("invoice_number"),
+                workspace_id=workspace_id,
+            )
+            row_json = "json_object('total_amount', total_amount)"
+        elif query_type == "ledger":
+            sql, params = self._ledger_query(
+                sheet_name=filters.get("sheet_name"), workspace_id=workspace_id,
+                vendor=filters.get("vendor"),
+            )
+            row_json = "CASE WHEN json_valid(row_data) THEN row_data ELSE rag_json(row_data) END"
+        else:
+            return QueryContext()
+
+        prefix = f"WITH matching AS ({sql}) "
         with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            d["row_data"] = json.loads(d["row_data"])
-            result.append(d)
-        return result
+            conn.execute("BEGIN")
+            conn.create_function("rag_number", 1, as_number)
+            conn.create_function("rag_json", 1, lambda text: json.dumps(
+                json.loads(text, parse_constant=lambda value: None), allow_nan=False
+            ))
+            total_count = conn.execute(prefix + "SELECT COUNT(*) FROM matching", params).fetchone()[0]
+            files = conn.execute(
+                prefix + "SELECT DISTINCT file_name FROM matching ORDER BY file_name", params
+            ).fetchall()
+            aggregates = conn.execute(prefix + f"""
+                , cells AS (
+                    SELECT cell.key AS column_name, cell.type AS value_type,
+                           rag_number(cell.value) AS number
+                    FROM matching, json_each({row_json}) AS cell
+                    WHERE cell.value IS NOT NULL AND cell.value != ''
+                )
+                SELECT column_name, SUM(number) AS total, COUNT(*) AS count,
+                       AVG(number) AS average, MIN(number) AS minimum, MAX(number) AS maximum
+                FROM cells
+                GROUP BY column_name
+                HAVING COUNT(number) = COUNT(*)
+                   AND SUM(value_type IN ('true', 'false', 'object', 'array')) = 0
+                ORDER BY column_name
+            """, params).fetchall()
+            rows = [dict(row) for row in conn.execute(sql + " LIMIT ?", [*params, limit]).fetchall()]
+        if query_type == "ledger":
+            for row in rows:
+                row["row_data"] = json.loads(row["row_data"])
+        summary = [format_summary(
+            row["column_name"], row["total"], row["count"], row["average"], row["minimum"], row["maximum"]
+        ) for row in aggregates if not is_identifier(row["column_name"])]
+        return QueryContext(rows, total_count, [row["file_name"] for row in files], summary)
 
     def delete_by_file_path(self, file_path: str) -> None:
         """Delete all records associated with a file path."""
@@ -451,13 +614,13 @@ class StructuredDB:
                 description = str(node.get("description", "")).strip()
                 
                 conn.execute("""
-                    INSERT INTO kg_nodes (id, label, type, description) 
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET 
+                    INSERT INTO kg_nodes (id, workspace_id, label, type, description)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(id, workspace_id) DO UPDATE SET
                         label=excluded.label,
                         type=excluded.type,
                         description=excluded.description
-                """, (node_id, label, category, description))
+                """, (node_id, workspace_id, label, category, description))
 
             for edge in edges:
                 source = str(edge.get("source", "")).strip()
@@ -472,11 +635,15 @@ class StructuredDB:
                 target_type = _coerce_kg_type(edge.get("target_type"))
 
                 # Auto-create nodes if they were missing from the nodes array
-                conn.execute("INSERT OR IGNORE INTO kg_nodes (id, label, type) VALUES (?, ?, ?)", (source, source, source_type))
-                conn.execute("INSERT OR IGNORE INTO kg_nodes (id, label, type) VALUES (?, ?, ?)", (target, target, target_type))
-
-                conn.execute("UPDATE kg_nodes SET type = ? WHERE id = ? AND type IS NULL", (source_type, source))
-                conn.execute("UPDATE kg_nodes SET type = ? WHERE id = ? AND type IS NULL", (target_type, target))
+                for node_id, node_type in ((source, source_type), (target, target_type)):
+                    conn.execute(
+                        "INSERT OR IGNORE INTO kg_nodes (id, workspace_id, label, type) VALUES (?, ?, ?, ?)",
+                        (node_id, workspace_id, node_id, node_type),
+                    )
+                    conn.execute(
+                        "UPDATE kg_nodes SET type = ? WHERE id = ? AND workspace_id = ? AND type IS NULL",
+                        (node_type, node_id, workspace_id),
+                    )
                 
                 # Upsert edge
                 conn.execute("""
@@ -519,13 +686,13 @@ class StructuredDB:
             edges_rows = conn.execute("SELECT source, target, relation, description, source_doc FROM kg_edges WHERE workspace_id = ? AND is_pruned = 0", (workspace_id,)).fetchall()
             
             nodes_rows = conn.execute("""
-                SELECT id, label, type, description, community, centrality FROM kg_nodes 
-                WHERE id IN (
+                SELECT id, label, type, description, community, centrality FROM kg_nodes
+                WHERE workspace_id = ? AND id IN (
                     SELECT source FROM kg_edges WHERE workspace_id = ? AND is_pruned = 0
                     UNION
                     SELECT target FROM kg_edges WHERE workspace_id = ? AND is_pruned = 0
                 )
-            """, (workspace_id, workspace_id)).fetchall()
+            """, (workspace_id, workspace_id, workspace_id)).fetchall()
             
             communities_rows = conn.execute("SELECT id, label FROM kg_communities WHERE workspace_id = ?", (workspace_id,)).fetchall()
             
@@ -538,8 +705,8 @@ class StructuredDB:
     def save_graph_layout(self, workspace_id: str, nodes_updates: List[Dict], edges_updates: List[Dict], communities: List[Dict]) -> None:
         """Persist offline-computed communities, centralities, and edge pruning."""
         with self._connect() as conn:
-            conn.executemany("UPDATE kg_nodes SET community = ?, centrality = ? WHERE id = ?",
-                             [(n['community'], n['centrality'], n['id']) for n in nodes_updates])
+            conn.executemany("UPDATE kg_nodes SET community = ?, centrality = ? WHERE id = ? AND workspace_id = ?",
+                             [(n['community'], n['centrality'], n['id'], workspace_id) for n in nodes_updates])
             
             conn.executemany("UPDATE kg_edges SET is_pruned = ? WHERE source = ? AND target = ? AND relation = ? AND workspace_id = ?",
                              [(e['is_pruned'], e['source'], e['target'], e['relation'], workspace_id) for e in edges_updates])
@@ -642,10 +809,97 @@ class StructuredDB:
             conn.execute("DELETE FROM kg_edges WHERE workspace_id = ?", (workspace_id,))
             conn.execute("DELETE FROM kg_communities WHERE workspace_id = ?", (workspace_id,))
             conn.execute("DELETE FROM kg_pending_docs WHERE workspace_id = ?", (workspace_id,))
-            # Delete nodes that have no more edges in this workspace (or just delete them all since kg_nodes lacks workspace_id)
-            # A safe way is to just delete all kg_nodes not referenced in kg_edges across any workspace
-            conn.execute("DELETE FROM kg_nodes WHERE id NOT IN (SELECT source FROM kg_edges UNION SELECT target FROM kg_edges)")
+            conn.execute("DELETE FROM kg_nodes WHERE workspace_id = ?", (workspace_id,))
+            conn.execute("DELETE FROM documents WHERE workspace_id = ?", (workspace_id,))
             logger.info(f"Cleared structured data for workspace_id={workspace_id}")
+
+    # ── Documents (one row per ingested file) ─────────────────
+
+    def find_document_by_hash(self, workspace_id: str, content_hash: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM documents WHERE workspace_id = ? AND content_hash = ?",
+                (workspace_id, content_hash),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def find_documents_by_name(self, workspace_id: str, file_name: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE workspace_id = ? AND file_name = ?",
+                (workspace_id, file_name),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_document(self, file_key: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM documents WHERE file_key = ?", (file_key,)).fetchone()
+        return dict(row) if row else None
+
+    def add_document(self, *, file_key: str, workspace_id: str, file_name: str, content_hash: str,
+                     size_bytes: int, source_types: List[str], doc_count: int, chunk_count: int,
+                     legacy: bool = False) -> None:
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO documents
+                    (file_key, workspace_id, file_name, content_hash, size_bytes, source_types,
+                     doc_count, chunk_count, legacy)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (file_key, workspace_id, file_name, content_hash, size_bytes,
+                  ",".join(sorted(source_types)), doc_count, chunk_count, int(legacy)))
+
+    def list_workspaces(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT workspace_id, COUNT(*) AS document_count FROM documents
+                GROUP BY workspace_id ORDER BY workspace_id
+            """).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_documents(self, workspace_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE workspace_id = ? ORDER BY ingested_at DESC, file_name",
+                (workspace_id,),
+            ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["source_types"] = [s for s in (d.get("source_types") or "").split(",") if s]
+            d["legacy"] = bool(d["legacy"])
+            out.append(d)
+        return out
+
+    def discard_ingestion(self, file_key: str) -> None:
+        """Remove uncommitted rows without touching an older version's graph."""
+        prefix = f"{file_key}-%"
+        with self._connect() as conn:
+            conn.execute("DELETE FROM invoices WHERE doc_id LIKE ?", (prefix,))
+            conn.execute("DELETE FROM ledger_records WHERE doc_id LIKE ?", (prefix,))
+            conn.execute("DELETE FROM kg_pending_docs WHERE doc_id LIKE ?", (prefix,))
+
+    def delete_document(self, doc: Dict[str, Any], preserve_file_key: Optional[str] = None) -> None:
+        """Remove a file's structured rows, KG contributions, and its documents row."""
+        file_key, ws, name = doc["file_key"], doc["workspace_id"], doc["file_name"]
+        prefix = f"{file_key}-%"
+        with self._connect() as conn:
+            if doc.get("legacy"):
+                # Pre-documents-table rows have random doc_ids; match by file name.
+                keep_prefix = f"{preserve_file_key}-%" if preserve_file_key else ""
+                conn.execute("DELETE FROM invoices WHERE workspace_id = ? AND file_name = ? AND doc_id NOT LIKE ?", (ws, name, keep_prefix))
+                conn.execute("DELETE FROM ledger_records WHERE workspace_id = ? AND file_name = ? AND doc_id NOT LIKE ?", (ws, name, keep_prefix))
+                conn.execute("DELETE FROM kg_pending_docs WHERE workspace_id = ? AND source_doc = ? AND doc_id NOT LIKE ?", (ws, name, keep_prefix))
+            else:
+                conn.execute("DELETE FROM invoices WHERE doc_id LIKE ?", (prefix,))
+                conn.execute("DELETE FROM ledger_records WHERE doc_id LIKE ?", (prefix,))
+                conn.execute("DELETE FROM kg_pending_docs WHERE doc_id LIKE ?", (prefix,))
+            conn.execute("DELETE FROM kg_edges WHERE workspace_id = ? AND source_doc = ?", (ws, name))
+            conn.execute("""
+                DELETE FROM kg_nodes WHERE workspace_id = ?
+                  AND id NOT IN (SELECT source FROM kg_edges WHERE workspace_id = ?
+                                 UNION SELECT target FROM kg_edges WHERE workspace_id = ?)
+            """, (ws, ws, ws))
+            conn.execute("DELETE FROM documents WHERE file_key = ?", (file_key,))
 
 # ── Utilities ─────────────────────────────────────────────────
 

@@ -1,0 +1,16 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm --prefix web ci
+    build:
+      commands:
+        - npm --prefix web run build
+  artifacts:
+    baseDirectory: rag_pipeline/webui
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - web/node_modules/**/*

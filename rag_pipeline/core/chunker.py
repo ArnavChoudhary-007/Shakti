@@ -12,7 +12,6 @@ Strategies:
 from __future__ import annotations
 
 import logging
-import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -105,8 +104,8 @@ def _refine_citation_meta(
         # Text splits: calculate line numbers
         start_char = doc.text.find(chunk_text)
         if start_char != -1:
-            start_line = doc.text.count("\\n", 0, start_char) + 1
-            end_line = start_line + chunk_text.count("\\n")
+            start_line = doc.text.count("\n", 0, start_char) + 1
+            end_line = start_line + chunk_text.count("\n")
             if st == "excel":
                 # Fallback narrative excel
                 sheet = loc.replace("sheet: ", "") if "sheet: " in loc else loc
@@ -120,6 +119,8 @@ def _refine_citation_meta(
                     refined["location_label"] = f"{loc}, Lines {start_line}–{end_line}"
                 else:
                     refined["location_label"] = f"Lines {start_line}–{end_line}"
+    elif st == "excel":
+        # Tabular sheet (single chunk)
         sheet = loc.replace("sheet: ", "") if "sheet: " in loc else loc
         refined["location_label"] = f"Sheet '{sheet}'"
     elif st in ("whatsapp", "telegram", "slack", "teams"):
@@ -173,7 +174,7 @@ _CHAT_TYPES = {"whatsapp", "telegram", "slack", "teams", "audio"}
 _CHAT_WINDOW_TYPES = {"whatsapp", "telegram", "slack", "teams"}
 
 # Source types using recursive text splitting
-_TEXT_SPLIT_TYPES = {"pdf", "docx", "pptx", "email", "mbox", "eml", "pst", "csv"}
+_TEXT_SPLIT_TYPES = {"pdf", "docx", "pptx", "email", "mbox", "eml", "pst", "csv", "text", "json"}
 
 # Excel: tabular sheets → single chunk; narrative → text split
 _EXCEL_TYPES = {"excel"}
@@ -237,7 +238,7 @@ class Chunker:
     def _single_chunk(self, doc: Any) -> List[Chunk]:
         cm = _citation_meta_dict(doc)
         return [Chunk(
-            chunk_id=str(uuid.uuid4()),
+            chunk_id=f"{doc.doc_id}-0",
             doc_id=doc.doc_id,
             source_type=doc.source_type,
             text=doc.text,
@@ -309,7 +310,7 @@ class Chunker:
                 base_cm["chunk_info"] = f"chunk {idx + 1}/{total}"
 
             chunks.append(Chunk(
-                chunk_id=str(uuid.uuid4()),
+                chunk_id=f"{first.doc_id}-w{idx}",
                 doc_id=first.doc_id,
                 source_type=first.source_type,
                 text=text,
@@ -347,7 +348,7 @@ class Chunker:
         for i, text in enumerate(text_chunks):
             cm = _refine_citation_meta(base_cm, i, total, doc, text)
             chunks.append(Chunk(
-                chunk_id=str(uuid.uuid4()),
+                chunk_id=f"{doc.doc_id}-{i}",
                 doc_id=doc.doc_id,
                 source_type=doc.source_type,
                 text=text,

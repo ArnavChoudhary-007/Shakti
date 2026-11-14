@@ -248,7 +248,7 @@ def test_normalize_audio():
     assert doc.speakers == ["SPEAKER_00", "SPEAKER_01"]
 
 
-def test_all():
+def run_all():
     tests = [
         test_normalize_pdf,
         test_normalize_docx,
@@ -277,5 +277,5 @@ def test_all():
 
 
 if __name__ == "__main__":
-    ok = test_all()
+    ok = run_all()
     sys.exit(0 if ok else 1)

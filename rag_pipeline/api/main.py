@@ -15,38 +15,47 @@ Ollama model is swappable per-request via ?model=llama3.2.
 from __future__ import annotations
 
 import asyncio
+import threading
+import hashlib
+import json
+import shutil
+import logging
+import re
 import time
 import uuid
-import hashlib
-import networkx as nx
-import community as community_louvain
-import json
-import logging
-import os
-import sys
-import psutil
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional
-from dotenv import load_dotenv
-
-from rag_pipeline.core.kg_builder import build_graph_layout
-
-load_dotenv()
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from urllib.parse import urlencode
 
 import httpx
 import requests
-import yaml
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Form, BackgroundTasks
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-# ── Path setup ────────────────────────────────────────────────
+load_dotenv()
+
 _ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(_ROOT.parent))
 
-from rag_pipeline import get_config
+from rag_pipeline import __version__, get_config, get_data_dir
+from rag_pipeline import settings as user_settings
+from rag_pipeline.api.file_access import FileViewTokens
+from rag_pipeline.api.security import (
+    TOKEN_HEADER,
+    CompanionGuard,
+    cors_origins,
+    is_local_request,
+    local_origins,
+    server_port,
+    web_origins,
+)
+from rag_pipeline.core import ollama_setup
+from rag_pipeline.core.kg_builder import build_graph_layout
+from rag_pipeline.core.inference_scheduler import InferenceScheduler
 from rag_pipeline.core.embedder import Embedder
 from rag_pipeline.core.model_catalog import (
     get_system_specs,
@@ -56,12 +65,20 @@ from rag_pipeline.core.model_catalog import (
     build_suggestions_view,
 )
 from rag_pipeline.core.vectorstore import get_vector_store
-from rag_pipeline.core.retriever import Retriever
-from rag_pipeline.core.generator import Generator, build_prompt_preview
+from rag_pipeline.core.retriever import Retriever, get_reranker, reranker_state, reset_reranker_failure
+from rag_pipeline.core import search_models
+from rag_pipeline.core.user_errors import describe_ingest_error
+from rag_pipeline.core.generator import (
+    NOT_FOUND_ANSWER,
+    GenerationError,
+    Generator,
+    build_prompt_preview,
+    sql_rows_to_chunks,
+)
 from rag_pipeline.core.normalizer import Normalizer
 from rag_pipeline.core.chunker import Chunker
 from rag_pipeline.connectors import extract_file
-from rag_pipeline.structured_db.db import StructuredDB
+from rag_pipeline.structured_db.db import QueryContext, StructuredDB
 from rag_pipeline.structured_db.router import QueryRouter
 
 logger = logging.getLogger(__name__)
@@ -74,6 +91,7 @@ _ingest_jobs: Dict[str, Dict[str, Any]] = {}
 # ── Load config at startup ────────────────────────────────────
 _CONFIG = get_config()
 _OLLAMA_HOST = _CONFIG.get("ollama", {}).get("host", "http://localhost:11434")
+_inference_scheduler = InferenceScheduler()
 
 # ── Lazy singletons ───────────────────────────────────────────
 _embedder: Optional[Embedder] = None
@@ -86,92 +104,166 @@ _struct_db: Optional[StructuredDB] = None
 _router: Optional[QueryRouter] = None
 
 
+# Each singleton has its own lock: the first upload, the first question and
+# the startup warm-up can all ask for the same model at the same moment, and
+# it must be loaded once. Separate locks (rather than one) keep a slow model
+# load from stalling unrelated lookups such as the SQLite handle.
+_SINGLETON_LOCKS: Dict[str, threading.Lock] = {
+    name: threading.Lock()
+    for name in ("_embedder", "_vector_store", "_retriever", "_generator",
+                 "_normalizer", "_chunker", "_struct_db", "_router")
+}
+
+
+def _singleton(name: str, factory: Callable[[], Any]) -> Any:
+    value = globals()[name]
+    if value is None:
+        with _SINGLETON_LOCKS[name]:
+            value = globals()[name]
+            if value is None:
+                value = factory()
+                globals()[name] = value
+    return value
+
+
 def _get_embedder() -> Embedder:
-    global _embedder
-    if _embedder is None:
-        _embedder = Embedder.from_config(_CONFIG)
-    return _embedder
+    return _singleton("_embedder", lambda: Embedder.from_config(_CONFIG))
 
 
 def _get_vector_store():
-    global _vector_store
-    if _vector_store is None:
-        _vector_store = get_vector_store(_CONFIG, embedder_dim=_get_embedder().dimension)
-    return _vector_store
+    # Creating the store needs the embedding dimension, which loads the model:
+    # only ever call this from a worker thread, never on the event loop.
+    return _singleton("_vector_store", lambda: get_vector_store(_CONFIG, embedder_dim=_get_embedder().dimension))
 
 
 def _get_retriever() -> Retriever:
-    global _retriever
-    if _retriever is None:
-        _retriever = Retriever(
-            vector_store=_get_vector_store(),
-            embedder=_get_embedder(),
-            config=_CONFIG,
-        )
-    return _retriever
+    return _singleton("_retriever", lambda: Retriever(
+        vector_store=_get_vector_store(), embedder=_get_embedder(), config=_CONFIG,
+    ))
 
 
 def _get_generator() -> Generator:
-    global _generator
-    if _generator is None:
-        _generator = Generator(_CONFIG)
-    return _generator
+    return _singleton("_generator", lambda: Generator(_CONFIG))
 
 
 def _get_normalizer() -> Normalizer:
-    global _normalizer
-    if _normalizer is None:
-        _normalizer = Normalizer()
-    return _normalizer
+    return _singleton("_normalizer", Normalizer)
 
 
 def _get_chunker() -> Chunker:
-    global _chunker
-    if _chunker is None:
-        _chunker = Chunker(_CONFIG)
-    return _chunker
+    return _singleton("_chunker", lambda: Chunker(_CONFIG))
 
 
 def _get_struct_db() -> StructuredDB:
-    global _struct_db
-    if _struct_db is None:
-        db_path = _CONFIG.get("structured_db", {}).get("sqlite_path", "./structured_db/structured.db")
-        _struct_db = StructuredDB(db_path)
-    return _struct_db
+    db_path = _CONFIG.get("structured_db", {}).get("sqlite_path", "./structured_db/structured.db")
+    day_first = bool(_CONFIG.get("structured_db", {}).get("dates_day_first", False))
+    return _singleton("_struct_db", lambda: StructuredDB(db_path, day_first=day_first))
 
 
 def _get_router() -> QueryRouter:
-    global _router
-    if _router is None:
-        _router = QueryRouter(_CONFIG)
-    return _router
+    return _singleton("_router", lambda: QueryRouter(_CONFIG))
+
+
+def _reranker_name() -> str:
+    return _CONFIG.get("retrieval", {}).get("reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+
+def _load_search_models() -> None:
+    """Bring the embedder, vector store and reranker into memory (worker thread)."""
+    _get_retriever()            # embedder + vector store
+    _get_embedder().dimension   # FAISS/Chroma may not have needed the model yet
+    reset_reranker_failure()
+    if get_reranker(_reranker_name()) is None:
+        raise RuntimeError(reranker_state()["error"] or "the reranker could not be loaded")
+
+
+def _warm_up_search_models() -> None:
+    """Startup: load the models in the background if they're already downloaded,
+    so the first question doesn't pay for it. Never downloads anything."""
+    if not search_models.status(_CONFIG)["ready"]:
+        logger.info("Search models not downloaded yet; the setup page will fetch them.")
+        return
+    try:
+        _load_search_models()
+        logger.info("Search models loaded.")
+    except Exception as e:
+        logger.warning("Search model warm-up failed: %s", e)
 
 
 # ── FastAPI app ───────────────────────────────────────────────
 
+_UPLOAD_DIR = get_data_dir() / "uploads"
+_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+_LOCAL_ORIGINS = local_origins(server_port(_CONFIG))
+_WEB_ORIGINS = web_origins(_CONFIG)
+
+# Shared HTTP client for Ollama calls (connection pooling).
+_http: Optional[httpx.AsyncClient] = None
+
+
+def _client() -> httpx.AsyncClient:
+    global _http
+    if _http is None:
+        _http = httpx.AsyncClient(timeout=10.0)
+    return _http
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    global _inference_scheduler
+    _inference_scheduler = InferenceScheduler()
+    user_settings.get_pairing_token()   # create on first run
+    try:
+        await asyncio.to_thread(_backfill_legacy_documents)
+    except Exception as e:
+        logger.warning("Legacy document backfill skipped: %s", e)
+    threading.Thread(target=_warm_up_search_models, name="search-models-warmup", daemon=True).start()
+    yield
+    tasks = tuple(_kg_tasks)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    if _http is not None:
+        await _http.aclose()
+    if _generator is not None:
+        await _generator.aclose()
+
+
 app = FastAPI(
-    title="RAG Pipeline API",
+    title="Shakti Companion API",
     description="Local-first, citation-grounded RAG over your documents.",
-    version="0.1.0",
+    version=__version__,
+    lifespan=_lifespan,
 )
+
+# Order matters: the last middleware added is the outermost, so CORS answers
+# preflight requests before the guard (which would reject them for lacking a
+# token) ever sees them.
+_file_view_tokens = FileViewTokens()
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CompanionGuard,
+    local=_LOCAL_ORIGINS,
+    web=_WEB_ORIGINS,
+    token_provider=user_settings.get_pairing_token,
+    file_view_tokens=_file_view_tokens,
 )
-
-os.makedirs(_ROOT / "uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(_ROOT / "uploads")), name="uploads")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins(_LOCAL_ORIGINS, _WEB_ORIGINS),
+    allow_credentials=False,
+    allow_methods=["GET", "HEAD", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", TOKEN_HEADER],
+)
 
 
 # ── Request / response models ─────────────────────────────────
 
 class QueryRequest(BaseModel):
     query: str
-    top_k: int = 5
+    workspace_id: str = "default"
+    top_k: Optional[int] = None          # None → config retrieval.final_k
     model: Optional[str] = None
     stream: bool = False
     filters: Optional[Dict[str, Any]] = None
@@ -185,6 +277,7 @@ class CitationOut(BaseModel):
     full_text: str
     source_type: str
     sender: Optional[str] = None
+    file_key: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
@@ -197,12 +290,14 @@ class QueryResponse(BaseModel):
 
 
 class IngestResponse(BaseModel):
+    file_name: str = ""
+    file_key: Optional[str] = None
     doc_count: int = 0
     chunk_count: int = 0
     source_types: List[str] = []
-    # Async job fields (present when ingestion is running in background)
-    job_id: Optional[str] = None
-    status: Optional[str] = None   # "processing" | "done" | "failed"
+    duplicate: bool = False        # identical file already in this workspace
+    replaced: int = 0              # older versions (same name) replaced
+    status: Optional[str] = None   # "done"
     error: Optional[str] = None
     # Per-stage timing breakdown (seconds), populated once ingestion finishes.
     timings: Optional[Dict[str, float]] = None
@@ -235,18 +330,21 @@ async def health():
 
     # Cloud models will be returned natively by /api/tags if they are pulled
 
-    embedder_status = "ok"
-    try:
-        emb = _get_embedder()
-        _ = emb.dimension
-    except Exception as e:
-        embedder_status = f"error: {e}"
+    # Report model state without loading anything: a health probe must stay
+    # instant and must not trigger a model download.
+    if _embedder is not None and _embedder.is_loaded:
+        embedder_status = "ok"
+    elif (await asyncio.to_thread(search_models.status, _CONFIG))["ready"]:
+        embedder_status = "ok"      # downloaded; loads on first use
+    else:
+        embedder_status = "not downloaded"
 
     vs_count = 0
-    try:
-        vs_count = _get_vector_store().count()
-    except Exception:
-        pass
+    if _vector_store is not None:
+        try:
+            vs_count = await asyncio.to_thread(_vector_store.count)
+        except Exception:
+            pass
 
     return HealthResponse(
         status="ok" if ollama_status == "ok" and embedder_status == "ok" else "degraded",
@@ -255,6 +353,104 @@ async def health():
         vector_store_count=vs_count,
         ollama_models=available_models,
     )
+
+
+# ── Companion identity, pairing, settings ─────────────────────
+
+@app.get("/version", tags=["System"])
+async def version():
+    """Lets the website detect an installed companion. Callable before pairing."""
+    return {"name": "shakti-companion", "version": __version__, "api": 1}
+
+
+@app.get("/pair/token", tags=["System"])
+async def pair_token(request: Request):
+    """
+    The pairing token for the public website. Only the companion's own UI
+    (or a local non-browser client) may read it.
+    """
+    if not is_local_request(request, _LOCAL_ORIGINS):
+        raise HTTPException(status_code=403, detail="Only available from the companion's own page.")
+    return {"token": user_settings.get_pairing_token(), "web_origins": sorted(_WEB_ORIGINS)}
+
+
+class SettingsUpdate(BaseModel):
+    chat_model: Optional[str] = None
+    graph_model: Optional[str] = Field(default=None, min_length=1, max_length=200)
+
+
+@app.get("/settings", tags=["System"])
+async def get_settings():
+    return {**user_settings.load_settings(), "effective_chat_model": user_settings.get_chat_model(_CONFIG),
+            "effective_graph_model": user_settings.get_graph_model(_CONFIG)}
+
+
+@app.put("/settings", tags=["System"])
+async def put_settings(update: SettingsUpdate):
+    saved = user_settings.update_settings(update.model_dump(exclude_unset=True))
+    return {**saved, "effective_chat_model": user_settings.get_chat_model(_CONFIG),
+            "effective_graph_model": user_settings.get_graph_model(_CONFIG)}
+
+
+# ── /setup — help the user install and start Ollama ───────────
+
+@app.get("/setup/status", tags=["Setup"])
+async def setup_status():
+    """Ollama installed/running state plus the chosen chat model."""
+    status = await ollama_setup.get_status(_OLLAMA_HOST, _client())
+    models: List[str] = []
+    if status["running"]:
+        try:
+            resp = await _client().get(f"{_OLLAMA_HOST}/api/tags", timeout=5.0)
+            models = [m["name"] for m in resp.json().get("models", [])]
+        except (httpx.HTTPError, ValueError):
+            pass
+    chat_model = user_settings.get_chat_model(_CONFIG)
+    status.update({
+        "models": models,
+        "chat_model": chat_model,
+        "chat_model_installed": chat_model in models,
+        "search_models": await asyncio.to_thread(_search_models_status),
+    })
+    return status
+
+
+def _search_models_status() -> Dict[str, Any]:
+    status = search_models.status(_CONFIG)
+    loaded = {
+        "embedding": _embedder is not None and _embedder.is_loaded,
+        "reranker": reranker_state()["loaded"],
+    }
+    for m in status["models"]:
+        m["loaded"] = loaded[m["kind"]]
+    return status
+
+
+@app.post("/setup/search-models", tags=["Setup"])
+async def setup_search_models():
+    """
+    Download the embedding + reranker models (with progress, polled through
+    /setup/status → search_models.job) and load them. Safe to call again.
+    """
+    return search_models.start_prepare(_CONFIG, _load_search_models)
+
+
+@app.post("/setup/ollama/start", tags=["Setup"])
+async def setup_start_ollama():
+    try:
+        await asyncio.to_thread(ollama_setup.start_ollama)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"status": "starting"}
+
+
+@app.post("/setup/ollama/install", tags=["Setup"])
+async def setup_install_ollama():
+    """Download the signed official installer and launch its setup wizard."""
+    try:
+        return ollama_setup.begin_install()
+    except RuntimeError as e:
+        raise HTTPException(status_code=501, detail=str(e))
 
 
 # ── /models ───────────────────────────────────────────────────
@@ -298,7 +494,7 @@ async def list_models():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Cannot reach Ollama: {e}")
 
-@app.delete("/ollama/models/{model_name}", tags=["System"])
+@app.delete("/ollama/models/{model_name:path}", tags=["System"])
 async def delete_model(model_name: str):
     """Delete a downloaded model from Ollama."""
     try:
@@ -364,204 +560,213 @@ async def pull_model(req: PullRequest):
 @app.get("/docs_count", tags=["System"])
 async def docs_count():
     """Return the number of chunks currently indexed."""
-    return {"chunk_count": _get_vector_store().count()}
+    return {"chunk_count": await asyncio.to_thread(lambda: _get_vector_store().count())}
 
 
 # ── /query ────────────────────────────────────────────────────
+
+def _sse(event: str, data: Any) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+def _run_sql(route: Any, workspace_id: str) -> QueryContext:
+    return _get_struct_db().query_answer_context(route.query_type, route.sql_params, workspace_id)
+
+
+async def _gather_context(req: QueryRequest, query_text: str):
+    """
+    Route the question and collect the sources to answer from.
+    Returns (chunks, used_sql, route). Blocking work runs in threads so the
+    server stays responsive while embeddings / reranking / SQL run.
+    """
+    route = _get_router().route(query_text)
+    if route.use_sql:
+        context = await asyncio.to_thread(_run_sql, route, req.workspace_id)
+        if context.total_count:
+            return sql_rows_to_chunks(
+                context.rows, total_count=context.total_count, numeric_summary=context.numeric_summary,
+                file_names=context.file_names,
+            ), True, route
+        # SQL found nothing → fall back to document search below.
+
+    filters = {**(req.filters or {}), "workspace_id": req.workspace_id}
+    # _get_retriever() itself may load the embedding model, so it runs in the
+    # worker thread too — evaluating it here would block the event loop.
+    chunks = await asyncio.to_thread(
+        lambda: _get_retriever().retrieve(query_text, top_k=req.top_k, filters=filters)
+    )
+
+    retrieval_cfg = _CONFIG.get("retrieval", {})
+    threshold = float(_CONFIG.get("vector_store", {}).get("similarity_threshold", 0.0))
+    if chunks:
+        if all("rerank_score" in chunk for chunk in chunks):
+            min_score = float(retrieval_cfg.get("min_rerank_score", -8.0))
+            chunks = [chunk for chunk in chunks if chunk["rerank_score"] >= min_score]
+        else:
+            best = max(chunk.get("combined_score", chunk.get("score", 0.0)) for chunk in chunks)
+            if best < threshold:
+                chunks = []
+
+    if chunks and retrieval_cfg.get("use_llm_grader", False):
+        if not await _get_generator().grade_context(query_text, chunks):
+            chunks = []
+    return chunks, False, route
+
+
+def _result_payload(result: Any, route: Any, query_text: str) -> Dict[str, Any]:
+    return {
+        "answer": result.answer,
+        "citations": [c.__dict__ for c in result.citations],
+        "model": result.model,
+        "used_sql": result.used_sql,
+        "route_reason": route.reason,
+        "structure": result.structure,
+        "query": query_text,
+    }
+
 
 @app.post("/query", tags=["RAG"])
 async def query(req: QueryRequest):
     """
     Main RAG query endpoint.
-    - Routes to SQL for structured queries, vector search for semantic queries.
-    - Supports streaming (stream=true) or JSON response.
-    - Every answer is grounded with numbered citations.
+    - Routes to SQL for tabular questions, document search otherwise.
+    - stream=true → Server-Sent Events: `status`, `token` (many), then
+      `done` (answer + citations) or `error`. Every route streams.
+    - stream=false → a single JSON QueryResponse.
     """
-    if req.history:
-        req.query = await _get_generator().contextualize_query(req.query, req.history, model=req.model)
-
-    route = _get_router().route(req.query)
-
-    if route.use_sql:
-        return await _handle_sql_query(req, route)
+    gen = _get_generator()
+    model = gen._resolve_model(req.model)
 
     if req.stream:
         return StreamingResponse(
-            _stream_response(req, route),
+            _stream_answer(req, model),
             media_type="text/event-stream",
-        )
-    return await _handle_vector_query(req, route)
-
-
-async def _handle_vector_query(req: QueryRequest, route: Any) -> QueryResponse:
-    chunks = _get_retriever().retrieve(req.query, top_k=req.top_k, filters=req.filters)
-    
-    # 1. Vector Guard
-    threshold = _CONFIG.get("vector_store", {}).get("similarity_threshold", 0.75)
-    if chunks:
-        best_score = chunks[0].get("combined_score", chunks[0].get("score", 0.0))
-        if best_score < threshold:
-            chunks = []
-
-    if not chunks:
-        return QueryResponse(
-            answer="Not found in documents.",
-            citations=[],
-            model=req.model or _get_generator().default_text_model,
-            used_sql=False,
-            route_reason=route.reason,
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    # 2. Algorithmic Grader
-    gen = _get_generator()
-    is_relevant = await gen.grade_context(req.query, chunks)
-    if not is_relevant:
-        return QueryResponse(
-            answer="Not found in documents.",
-            citations=[],
-            model=req.model or gen.default_text_model,
-            used_sql=False,
-            route_reason=route.reason,
-        )
-
-    result = await _get_generator().generate(req.query, chunks, model=req.model)
+    try:
+        async with _inference_scheduler.chat():
+            query_text = await gen.contextualize_query(req.query, req.history or [], model=model)
+            chunks, used_sql, route = await _gather_context(req, query_text)
+            if not chunks:
+                result = gen.finalize(NOT_FOUND_ANSWER, [], model)
+            else:
+                result = await gen.generate(query_text, chunks, model=model, used_sql=used_sql)
+    except GenerationError as e:
+        raise HTTPException(status_code=502, detail=str(e))
     return QueryResponse(
         answer=result.answer,
         citations=[CitationOut(**c.__dict__) for c in result.citations],
         model=result.model,
-        used_sql=False,
+        used_sql=result.used_sql,
         route_reason=route.reason,
         structure=result.structure,
     )
 
 
-async def _handle_sql_query(req: QueryRequest, route: Any) -> QueryResponse:
-    db = _get_struct_db()
-    params = route.sql_params
-
-    if route.query_type == "invoice":
-        sql_results = db.query_invoices(
-            vendor=params.get("vendor"),
-            date_from=params.get("date_from"),
-            date_to=params.get("date_to"),
-            min_amount=params.get("min_amount"),
-            max_amount=params.get("max_amount"),
-            invoice_number=params.get("invoice_number"),
-            limit=50,
-        )
-    elif route.query_type == "ledger":
-        sql_results = db.query_ledger(
-            sheet_name=params.get("sheet_name"),
-            limit=200,
-        )
-    else:
-        sql_results = []
-
-    if not sql_results:
-        # Fall back to vector search if SQL found nothing
-        return await _handle_vector_query(req, route)
-
-    result = await _get_generator().generate_from_sql(
-        req.query, sql_results, model=req.model
-    )
-    return QueryResponse(
-        answer=result.answer,
-        citations=[CitationOut(**c.__dict__) for c in result.citations],
-        model=result.model,
-        used_sql=True,
-        route_reason=route.reason,
-    )
+async def _stream_answer(req: QueryRequest, model: str) -> AsyncIterator[str]:
+    async with _inference_scheduler.chat():
+        stream = _stream_answer_body(req, model)
+        try:
+            async for event in stream:
+                yield event
+        finally:
+            await stream.aclose()
 
 
-async def _stream_response(req: QueryRequest, route: Any) -> AsyncIterator[str]:
-    """SSE streaming: sends tokens as data: ... events, then a citations event."""
-    chunks = _get_retriever().retrieve(req.query, top_k=req.top_k, filters=req.filters)
-    
-    # 1. Vector Guard
-    threshold = _CONFIG.get("vector_store", {}).get("similarity_threshold", 0.75)
-    if chunks:
-        best_score = chunks[0].get("combined_score", chunks[0].get("score", 0.0))
-        if best_score < threshold:
-            chunks = []
-
-    if not chunks:
-        yield "data: Not found in documents.\n\n"
-        yield "data: [DONE]\n\n"
-        return
-
-    # 2. Algorithmic Grader
+async def _stream_answer_body(req: QueryRequest, model: str) -> AsyncIterator[str]:
     gen = _get_generator()
-    is_relevant = await gen.grade_context(req.query, chunks)
-    if not is_relevant:
-        yield "data: Not found in documents.\n\n"
-        yield "data: [DONE]\n\n"
-        return
-    async for token in gen.generate_stream(req.query, chunks, model=req.model):
-        if token.startswith("\n__CITATIONS__:"):
-            # Strip prefix and send as a special event (includes citations + structure)
-            payload = token[len("\n__CITATIONS__:"):]
-            yield f"event: citations\ndata: {payload}\n\n"
-        else:
-            # Escape newlines for SSE
-            escaped = token.replace("\n", "\\n")
-            yield f"data: {escaped}\n\n"
-    yield "data: [DONE]\n\n"
+    try:
+        query_text = req.query
+        if req.history:
+            yield _sse("status", {"stage": "understanding"})
+            query_text = await gen.contextualize_query(req.query, req.history, model=model)
+
+        yield _sse("status", {"stage": "searching"})
+        chunks, used_sql, route = await _gather_context(req, query_text)
+
+        if not chunks:
+            yield _sse("done", _result_payload(gen.finalize(NOT_FOUND_ANSWER, [], model), route, query_text))
+            return
+
+        yield _sse("status", {"stage": "generating", "sources": len(chunks), "used_sql": used_sql})
+        parts: List[str] = []
+        async for token in gen.generate_stream(query_text, chunks, model=model):
+            parts.append(token)
+            yield _sse("token", {"text": token})
+
+        result = gen.finalize("".join(parts), chunks, model, used_sql=used_sql)
+        yield _sse("done", _result_payload(result, route, query_text))
+    except GenerationError as e:
+        yield _sse("error", {"message": str(e)})
+    except Exception as e:  # never leave the client hanging mid-stream
+        logger.exception("Query failed")
+        yield _sse("error", {"message": f"Something went wrong while answering: {e}"})
 
 
 # ── /ingest ───────────────────────────────────────────────────
+
+# One ingestion at a time: parsing/OCR/embedding are CPU-heavy, and running
+# several at once just makes every one of them slower.
+_INGEST_SEMAPHORE = asyncio.Semaphore(1)
+_JOB_TTL_SECONDS = 3600
+_MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+
+
+def _prune_jobs() -> None:
+    cutoff = time.time() - _JOB_TTL_SECONDS
+    for job_id in [j for j, v in _ingest_jobs.items()
+                   if v["status"] in ("done", "failed") and v.get("finished_at", 0) < cutoff]:
+        _ingest_jobs.pop(job_id, None)
+
 
 @app.post("/ingest", tags=["Ingestion"])
 async def ingest(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    workspace_id: str = Form("default")
+    workspace_id: str = Form("default"),
 ):
     """
-    Async ingest: saves the file immediately, kicks off extract→chunk→embed
-    in the background, and returns a job_id straight away (HTTP 202).
-    Poll GET /ingest/status/{job_id} for completion.
+    Saves the upload, queues extract→chunk→embed in the background, and
+    returns a job_id straight away (HTTP 202). Poll GET /ingest/status/{job_id}.
     """
-    import shutil
     from fastapi.responses import JSONResponse
 
-    file_name = Path(file.filename).name if file.filename else "unknown.bin"
-    upload_path = _ROOT / "uploads" / file_name
-    upload_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(upload_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
+    file_name = Path(file.filename).name if file.filename else "upload.bin"
     job_id = str(uuid.uuid4())
+    incoming = _UPLOAD_DIR / "_incoming" / job_id
+    incoming.mkdir(parents=True, exist_ok=True)
+    target = incoming / file_name
+
+    size = 0
+    with open(target, "wb") as f:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > _MAX_UPLOAD_BYTES:
+                f.close()
+                shutil.rmtree(incoming, ignore_errors=True)
+                raise HTTPException(status_code=413, detail="File is larger than 512 MB.")
+            f.write(chunk)
+
+    _prune_jobs()
     _ingest_jobs[job_id] = {
         "job_id": job_id,
-        "status": "processing",
+        "status": "queued",            # queued → processing → done | failed
+        "stage": None,
         "file_name": file_name,
+        "workspace_id": workspace_id,
         "doc_count": 0,
         "chunk_count": 0,
         "source_types": [],
+        "duplicate": False,
+        "replaced": 0,
+        "file_key": None,
         "error": None,
         "timings": None,
+        "created_at": time.time(),
     }
-
-    background_tasks.add_task(
-        _run_ingest_job, job_id, str(upload_path), file_name, workspace_id
-    )
-
+    background_tasks.add_task(_run_ingest_job, job_id, target, file_name, workspace_id)
     return JSONResponse(status_code=202, content=_ingest_jobs[job_id])
-
-
-@app.post("/ingest_path", response_model=IngestResponse, tags=["Ingestion"])
-async def ingest_path(
-    path: str = Query(..., description="Absolute path to file on disk"),
-    workspace_id: str = Query("default", description="Workspace/session ID")
-):
-    """
-    Ingest a file by path (for server-side use, e.g. CLI or sync daemon).
-    Runs synchronously so callers can await the result directly.
-    """
-    if not Path(path).exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {path}")
-    return await _ingest_file_path(path, original_name=Path(path).name, workspace_id=workspace_id)
 
 
 @app.get("/ingest/status/{job_id}", tags=["Ingestion"])
@@ -573,238 +778,492 @@ async def ingest_status(job_id: str):
     return job
 
 
-async def _run_ingest_job(
-    job_id: str, file_path: str, original_name: str, workspace_id: str
-) -> None:
-    """Background worker: runs the full ingest pipeline and updates job state."""
+async def _run_ingest_job(job_id: str, incoming_path: Path, original_name: str, workspace_id: str) -> None:
+    job = _ingest_jobs[job_id]
+
+    def on_stage(stage: str) -> None:
+        job["stage"] = stage
+
     try:
-        result = await _ingest_file_path(
-            file_path,
-            original_name=original_name,
-            workspace_id=workspace_id,
-        )
-        _ingest_jobs[job_id].update({
-            "status": "done",
-            "doc_count": result.doc_count,
-            "chunk_count": result.chunk_count,
-            "source_types": result.source_types,
-            "timings": result.timings,
-        })
-    except HTTPException as e:
-        _ingest_jobs[job_id].update({"status": "failed", "error": e.detail})
+        async with _INGEST_SEMAPHORE:
+            job["status"] = "processing"
+            result = await asyncio.to_thread(
+                _ingest_file_sync, incoming_path, original_name, workspace_id,
+                store_upload=True, on_stage=on_stage,
+            )
+        job.update({"status": "done", **result.model_dump(exclude={"status", "error"})})
+    except HTTPException as e:          # our own messages, e.g. "no text found"
+        logger.warning("Ingest job %s (%s) failed: %s", job_id, original_name, e.detail)
+        job.update({"status": "failed", "error": e.detail})
     except Exception as e:
-        logger.error(f"Ingest job {job_id} failed: {e}")
-        _ingest_jobs[job_id].update({"status": "failed", "error": str(e)})
+        # The technical detail (often with local paths) goes to the log only.
+        logger.error("Ingest job %s (%s) failed at stage %s", job_id, original_name, job.get("stage"), exc_info=True)
+        job.update({"status": "failed", "error": describe_ingest_error(e, original_name, job.get("stage"))})
+    finally:
+        job["finished_at"] = time.time()
+        shutil.rmtree(incoming_path.parent, ignore_errors=True)
 
 
-async def _ingest_file_path(file_path: str, original_name: str, workspace_id: str = "default") -> IngestResponse:
-    """Core ingestion logic, shared by /ingest and /ingest_path."""
-    normalizer = _get_normalizer()
-    chunker = _get_chunker()
-    embedder = _get_embedder()
-    vs = _get_vector_store()
+def _hash_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _delete_document(doc: Dict[str, Any], preserve_file_key: Optional[str] = None) -> None:
+    """Remove one ingested file everywhere: vectors, SQL rows, KG, upload copy."""
+    if doc.get("legacy") and preserve_file_key:
+        store = _get_vector_store()
+        doc_ids = {meta.get("doc_id") for meta in store.iter_metadata()
+                   if meta.get("workspace_id") == doc["workspace_id"]
+                   and meta.get("file_name") == doc["file_name"]
+                   and meta.get("file_key") != preserve_file_key}
+        for doc_id in doc_ids:
+            if doc_id is not None:
+                store.delete_where({"workspace_id": doc["workspace_id"],
+                                    "file_name": doc["file_name"], "doc_id": doc_id})
+    elif doc.get("legacy"):
+        _get_vector_store().delete_where({"workspace_id": doc["workspace_id"], "file_name": doc["file_name"]})
+    else:
+        _get_vector_store().delete_where({"file_key": doc["file_key"]})
+    _get_struct_db().delete_document(doc, preserve_file_key=preserve_file_key)
+    shutil.rmtree(_UPLOAD_DIR / doc["file_key"], ignore_errors=True)
+
+
+def _ingest_file_sync(
+    file_path: Path,
+    original_name: str,
+    workspace_id: str = "default",
+    *,
+    store_upload: bool = False,
+    on_stage=None,
+) -> IngestResponse:
+    """
+    Core ingestion (blocking — call via asyncio.to_thread).
+
+    IDs are derived from the file's content, so re-uploading an identical
+    file is a no-op, and uploading a changed file with the same name
+    replaces the old version instead of duplicating it.
+    """
+    stage = on_stage or (lambda s: None)
     db = _get_struct_db()
 
+    file_path = Path(file_path)
+    content_hash = _hash_file(file_path)
+    existing = db.find_document_by_hash(workspace_id, content_hash)
+    if existing:
+        return IngestResponse(
+            status="done", file_name=original_name, file_key=existing["file_key"],
+            doc_count=existing["doc_count"], chunk_count=existing["chunk_count"],
+            source_types=[s for s in (existing.get("source_types") or "").split(",") if s],
+            duplicate=True,
+        )
+
+    file_key = hashlib.sha256(f"{workspace_id}\0{content_hash}".encode()).hexdigest()[:20]
+    stored_dir: Optional[Path] = None
+    if store_upload:
+        stored_dir = _UPLOAD_DIR / file_key
+        stored_dir.mkdir(parents=True, exist_ok=True)
+        stored = stored_dir / original_name
+        shutil.move(str(file_path), stored)
+        file_path = stored
+
+    saving_started = False
+
+    def report_stage(value):
+        nonlocal saving_started
+        saving_started = saving_started or value == "saving"
+        stage(value)
+
+    try:
+        return _index_file(file_path, original_name, workspace_id, file_key, content_hash, report_stage)
+    except Exception:
+        if not saving_started or db.get_document(file_key) is None:
+            if saving_started:
+                for cleanup in (
+                    lambda: _get_vector_store().delete_where({"file_key": file_key}),
+                    lambda: db.discard_ingestion(file_key),
+                ):
+                    try:
+                        cleanup()
+                    except Exception:
+                        logger.exception("Failed to clean up incomplete ingestion %s", file_key)
+            if stored_dir is not None:
+                shutil.rmtree(stored_dir, ignore_errors=True)
+        raise
+
+
+def _index_file(file_path: Path, original_name: str, workspace_id: str,
+                file_key: str, content_hash: str, stage) -> IngestResponse:
+    db = _get_struct_db()
     t_start = time.perf_counter()
     stage_times = {"parse": 0.0, "chunk": 0.0, "embed": 0.0, "store": 0.0, "kg": 0.0}
 
+    # ── Parse + normalize ──
+    stage("reading")
     t0 = time.perf_counter()
-    envelopes = list(extract_file(file_path))
-    stage_times["parse"] = time.perf_counter() - t0
+    envelopes = list(extract_file(str(file_path)))
     if not envelopes:
-        raise HTTPException(status_code=422, detail=f"Could not extract content from {original_name}")
-
-    all_chunks: List[Dict[str, Any]] = []
-    source_types: set = set()
-    doc_count = 0
-
-    aggregated_texts = []
-    aggregated_chunk_meta = []
-    docs_for_chunking: List[Any] = []
-
-    for env in envelopes:
+        raise HTTPException(status_code=422, detail=f"Couldn't find any text in {original_name}.")
+    normalizer = _get_normalizer()
+    docs = []
+    for i, env in enumerate(envelopes):
         doc = normalizer.normalize(env)
-        doc_count += 1
-        source_types.add(doc.source_type)
+        doc.doc_id = f"{file_key}-{i}"
+        docs.append((env, doc))
+    stage_times["parse"] = time.perf_counter() - t0
 
-        # Write structured data to SQLite for invoices/tabular Excel
-        if doc.structured_data:
-            doc.structured_data["workspace_id"] = workspace_id
-
-        if doc.source_type == "invoice" and doc.structured_data:
-            db.upsert_invoice(
-                doc_id=doc.doc_id,
-                structured_data=doc.structured_data,
-                file_path=env["raw_path"],
-                file_name=env["raw_metadata"].get("file_name", original_name),
-                raw_text=doc.text,
-            )
-        elif doc.source_type in ("excel", "csv") and doc.structured_data:
-            records = doc.structured_data.get("records", [])
-            if records:
-                db.upsert_ledger_records(
-                    doc_id=doc.doc_id,
-                    file_name=env["raw_metadata"].get("file_name", original_name),
-                    sheet_name=doc.structured_data.get("sheet_name", ""),
-                    records=records,
-                    file_path=env.get("raw_path", file_path),
-                )
-
-        # Defer chunking until every envelope in this file is normalized —
-        # chat message logs need their sibling messages to window correctly
-        # (see chunker.chunk_batch). Non-chat docs chunk the same as before,
-        # just after the loop instead of inline.
-        docs_for_chunking.append(doc)
-
-        # KG: queue the raw text for extraction later, behind the "Build Graph"
-        # action — no Ollama call here, so ingestion never blocks on it.
-        if doc.text.strip():
-            t0 = time.perf_counter()
-            db.add_kg_pending_doc(
-                doc_id=doc.doc_id,
-                workspace_id=workspace_id,
-                source_doc=original_name,
-                source_type=doc.source_type,
-                text=doc.text,
-            )
-            stage_times["kg"] += time.perf_counter() - t0
-
+    # ── Chunk ──
     t0 = time.perf_counter()
-    all_chunked = chunker.chunk_batch(docs_for_chunking)
+    chunks = _get_chunker().chunk_batch([d for _, d in docs])
     stage_times["chunk"] = time.perf_counter() - t0
-    for chunk in all_chunked:
-        aggregated_texts.append(chunk.text)
-        aggregated_chunk_meta.append((chunk, chunk.metadata.get("title", ""), workspace_id))
 
-    # Embed and Store in batches to avoid hogging threads and memory
-    if aggregated_texts:
-        BATCH_SIZE = 64
-        for i in range(0, len(aggregated_texts), BATCH_SIZE):
-            text_batch = aggregated_texts[i:i+BATCH_SIZE]
-            meta_batch = aggregated_chunk_meta[i:i+BATCH_SIZE]
+    # ── Embed (the slow part) before touching any stored data ──
+    stage("embedding")
+    t0 = time.perf_counter()
+    vs = _get_vector_store()      # may load the model: failures here are model problems, not file problems
+    embedder = _get_embedder()
+    embeddings: List[List[float]] = []
+    batch_size = 64
+    for i in range(0, len(chunks), batch_size):
+        embeddings.extend(embedder.encode([c.text for c in chunks[i:i + batch_size]]))
+    stage_times["embed"] = time.perf_counter() - t0
 
-            t0 = time.perf_counter()
-            embeddings = await asyncio.to_thread(embedder.encode, text_batch)
-            stage_times["embed"] += time.perf_counter() - t0
+    # ── Replace older versions of this file (same name, same workspace) ──
+    stage("saving")
+    previous = db.find_documents_by_name(workspace_id, original_name)
 
-            batch_chunks = []
-            for (chunk, title, ws_id), embedding in zip(meta_batch, embeddings):
-                batch_chunks.append({
-                    "chunk_id": chunk.chunk_id,
-                    "text": chunk.text,
-                    "embedding": embedding,
-                    "metadata": {
-                        **chunk.citation_meta,
-                        "doc_id": chunk.doc_id,
-                        "source_type": chunk.source_type,
-                        "title": title,
-                        "chunk_index": chunk.chunk_index,
-                        "total_chunks": chunk.total_chunks,
-                        "workspace_id": ws_id,
-                    },
-                })
+    # ── Store vectors ──
+    t0 = time.perf_counter()
+    records = []
+    for chunk, embedding in zip(chunks, embeddings):
+        records.append({
+            "chunk_id": chunk.chunk_id,
+            "text": chunk.text,
+            "embedding": embedding,
+            "metadata": {
+                **chunk.citation_meta,
+                "doc_id": chunk.doc_id,
+                "file_key": file_key,
+                "source_type": chunk.source_type,
+                "title": chunk.metadata.get("title", ""),
+                "chunk_index": chunk.chunk_index,
+                "total_chunks": chunk.total_chunks,
+                "workspace_id": workspace_id,
+            },
+        })
+    for i in range(0, len(records), 256):
+        vs.add(records[i:i + 256])
+    stage_times["store"] = time.perf_counter() - t0
 
-            if batch_chunks:
-                t0 = time.perf_counter()
-                vs.add(batch_chunks)
-                stage_times["store"] += time.perf_counter() - t0
-                all_chunks.extend(batch_chunks)
+    # ── Structured rows + KG queue ──
+    t0 = time.perf_counter()
+    source_types = set()
+    for env, doc in docs:
+        source_types.add(doc.source_type)
+        file_name = env["raw_metadata"].get("file_name", original_name)
+        if doc.source_type == "invoice" and doc.structured_data:
+            doc.structured_data["workspace_id"] = workspace_id
+            db.upsert_invoice(doc_id=doc.doc_id, structured_data=doc.structured_data,
+                              file_path=env["raw_path"], file_name=file_name, raw_text=doc.text)
+        elif doc.source_type in ("excel", "csv") and doc.structured_data:
+            rows = doc.structured_data.get("records", [])
+            if rows:
+                db.upsert_ledger_records(doc_id=doc.doc_id, file_name=file_name,
+                                         sheet_name=doc.structured_data.get("sheet_name", ""),
+                                         records=rows, file_path=env.get("raw_path"),
+                                         workspace_id=workspace_id)
+        if doc.text.strip():
+            # KG extraction is deferred to "Build graph" — no LLM call here.
+            db.add_kg_pending_doc(doc_id=doc.doc_id, workspace_id=workspace_id,
+                                  source_doc=original_name, source_type=doc.source_type, text=doc.text)
+    stage_times["kg"] = time.perf_counter() - t0
+
+    db.add_document(
+        file_key=file_key, workspace_id=workspace_id, file_name=original_name,
+        content_hash=content_hash, size_bytes=file_path.stat().st_size,
+        source_types=sorted(source_types), doc_count=len(docs), chunk_count=len(records),
+    )
+
+    for old in previous:
+        _delete_document(old, preserve_file_key=file_key)
 
     stage_times["total"] = time.perf_counter() - t_start
     logger.info(
-        "[timing] Ingest %s: parse=%.2fs chunk=%.2fs kg=%.2fs embed=%.2fs store=%.2fs total=%.2fs "
-        "(envelopes=%d, chunks=%d)",
-        original_name, stage_times["parse"], stage_times["chunk"], stage_times["kg"],
-        stage_times["embed"], stage_times["store"], stage_times["total"],
-        doc_count, len(all_chunks),
+        "[timing] Ingest %s: parse=%.2fs chunk=%.2fs embed=%.2fs store=%.2fs kg=%.2fs total=%.2fs "
+        "(envelopes=%d, chunks=%d, replaced=%d)",
+        original_name, stage_times["parse"], stage_times["chunk"], stage_times["embed"],
+        stage_times["store"], stage_times["kg"], stage_times["total"], len(docs), len(records), len(previous),
+    )
+    return IngestResponse(
+        status="done", file_name=original_name, file_key=file_key,
+        doc_count=len(docs), chunk_count=len(records), source_types=sorted(source_types),
+        replaced=len(previous), timings=stage_times,
     )
 
-    return IngestResponse(
-        status="ok",
-        file_name=original_name,
-        doc_count=doc_count,
-        chunk_count=len(all_chunks),
-        source_types=list(source_types),
-        timings=stage_times,
+
+async def _ingest_file_path(file_path: str, original_name: str, workspace_id: str = "default") -> IngestResponse:
+    """Async wrapper used by the sync daemon (ingests the file in place)."""
+    async with _INGEST_SEMAPHORE:
+        return await asyncio.to_thread(_ingest_file_sync, Path(file_path), original_name, workspace_id)
+
+
+# ── /documents ────────────────────────────────────────────────
+
+def _backfill_legacy_documents() -> None:
+    """
+    Files ingested before the documents table existed have no row there, so
+    they'd be invisible in the Documents list. Rebuild rows from vector-store
+    metadata once, grouped by (workspace, file name).
+    """
+    db = _get_struct_db()
+    with db._connect() as conn:
+        if conn.execute("SELECT 1 FROM documents LIMIT 1").fetchone():
+            return
+    vs = _get_vector_store()
+    if vs.count() == 0:
+        return
+    groups: Dict[tuple, Dict[str, Any]] = {}
+    for meta in vs.iter_metadata():
+        key = (meta.get("workspace_id") or "default", meta.get("file_name") or "unknown")
+        g = groups.setdefault(key, {"chunks": 0, "types": set()})
+        g["chunks"] += 1
+        if meta.get("source_type"):
+            g["types"].add(meta["source_type"])
+    for (ws, name), g in groups.items():
+        legacy_key = "legacy-" + hashlib.sha256(f"{ws}\0{name}".encode()).hexdigest()[:16]
+        db.add_document(file_key=legacy_key, workspace_id=ws, file_name=name, content_hash=legacy_key,
+                        size_bytes=0, source_types=sorted(g["types"]), doc_count=0,
+                        chunk_count=g["chunks"], legacy=True)
+    logger.info("Backfilled %d legacy document row(s).", len(groups))
+
+
+@app.get("/workspaces", tags=["Ingestion"])
+async def list_workspaces():
+    """Workspaces that hold at least one document (plus 'default')."""
+    rows = await asyncio.to_thread(_get_struct_db().list_workspaces)
+    if not any(r["workspace_id"] == "default" for r in rows):
+        rows.insert(0, {"workspace_id": "default", "document_count": 0})
+    return {"workspaces": rows}
+
+
+@app.get("/documents", tags=["Ingestion"])
+async def list_documents(workspace_id: str = Query("default")):
+    return {"documents": await asyncio.to_thread(_get_struct_db().list_documents, workspace_id)}
+
+
+@app.delete("/documents/{file_key}", tags=["Ingestion"])
+async def delete_document(file_key: str):
+    doc = await asyncio.to_thread(_get_struct_db().get_document, file_key)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    async with _INGEST_SEMAPHORE:
+        await asyncio.to_thread(_delete_document, doc)
+    return {"status": "deleted", "file_key": file_key}
+
+
+class OriginalFileRequest(BaseModel):
+    workspace_id: str = Field(default="default", min_length=1, max_length=256)
+    file_key: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    file_name: Optional[str] = Field(default=None, min_length=1, max_length=1024)
+
+
+def _original_file(file_key: str, workspace_id: str):
+    document = _get_struct_db().get_document(file_key)
+    if not document or document["workspace_id"] != workspace_id:
+        raise HTTPException(status_code=404, detail="This source is no longer available in this workspace. The excerpt is still available.")
+    file_name = document["file_name"]
+    if (
+        not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", file_key)
+        or not file_name
+        or file_name in {".", ".."}
+        or any(character in file_name for character in '/\\:')
+        or any(ord(character) < 32 for character in file_name)
+    ):
+        raise HTTPException(status_code=404, detail="The retained original is unavailable. The excerpt is still available.")
+    root = _UPLOAD_DIR.resolve()
+    directory = (root / file_key).resolve()
+    path = (directory / file_name).resolve()
+    if directory != root / file_key or path != directory / file_name or not path.is_file():
+        raise HTTPException(status_code=404, detail="The original file was not retained or has been removed. The excerpt is still available.")
+    inline_types = {
+        ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
+        ".bmp": "image/bmp", ".txt": "text/plain", ".md": "text/plain",
+        ".markdown": "text/plain", ".json": "text/plain",
+    }
+    media_type = inline_types.get(path.suffix.lower())
+    return document, path, media_type
+
+
+@app.post("/documents/original", tags=["Ingestion"])
+def original_file_link(body: OriginalFileRequest):
+    file_key = body.file_key
+    if not file_key:
+        if not body.file_name:
+            raise HTTPException(status_code=422, detail="A source identifier or filename is required.")
+        matches = _get_struct_db().find_documents_by_name(body.workspace_id, body.file_name)
+        if len(matches) > 1:
+            raise HTTPException(status_code=409, detail="More than one original matches this older citation. Use the excerpt instead.")
+        if not matches:
+            raise HTTPException(status_code=404, detail="This older citation has no retained original. The excerpt is still available.")
+        file_key = matches[0]["file_key"]
+    document, path, media_type = _original_file(file_key, body.workspace_id)
+    query = urlencode({"workspace_id": body.workspace_id, "view_token": _file_view_tokens.issue(file_key, body.workspace_id)})
+    return JSONResponse({
+        "path": f"/documents/{file_key}/content?{query}",
+        "file_name": document["file_name"],
+        "previewable": media_type is not None,
+        "matched_by_name": body.file_key is None,
+    }, headers={"Cache-Control": "no-store"})
+
+
+@app.api_route("/documents/{file_key}/content", methods=["GET", "HEAD"], tags=["Ingestion"])
+def original_file_content(file_key: str, workspace_id: str = Query("default")):
+    document, path, media_type = _original_file(file_key, workspace_id)
+    return FileResponse(
+        path,
+        media_type=media_type or "application/octet-stream",
+        filename=document["file_name"],
+        content_disposition_type="inline" if media_type else "attachment",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Cache-Control": "private, no-store",
+        },
     )
 
 
 # ── /knowledge_graph ──────────────────────────────────────────
 
+_kg_locks: Dict[str, asyncio.Lock] = {}
+# Per-workspace build job, reported by GET /knowledge_graph. In memory only.
+_kg_jobs: Dict[str, Dict[str, Any]] = {}
+_kg_tasks: set = set()   # strong references so running builds aren't garbage-collected
+
+
+def _kg_job(workspace_id: str) -> Dict[str, Any]:
+    job = _kg_jobs.get(workspace_id) or {"state": "idle", "stage": None, "done": 0, "total": 0, "error": None}
+    return {**job, "paused_for_chat": job["state"] == "running" and _inference_scheduler.chatting}
+
+
 @app.get("/knowledge_graph", tags=["Knowledge Graph"])
 async def get_knowledge_graph(workspace_id: str = Query("default")):
-    """Returns the extracted Knowledge Graph nodes, unpruned edges, and communities."""
-    db = _get_struct_db()
-    return db.get_knowledge_graph(workspace_id=workspace_id)
+    """Nodes, unpruned edges and communities, plus the queue and build progress."""
+    def load():
+        db = _get_struct_db()
+        graph = db.get_knowledge_graph(workspace_id=workspace_id)
+        with db._connect() as conn:
+            pending = conn.execute(
+                "SELECT COUNT(DISTINCT source_doc) FROM kg_pending_docs WHERE workspace_id = ?", (workspace_id,)
+            ).fetchone()[0]
+        return graph, pending
 
-@app.post("/knowledge_graph/build", tags=["Knowledge Graph"])
-async def build_knowledge_graph(
-    workspace_id: str = Query("default"),
-    min_edge_weight: int = Query(1, description="Minimum occurrences to keep an edge")
-):
-    """
-    Runs community detection, centrality, LLM labeling, and edge pruning.
-    Call this before rendering the graph on the frontend.
-    """
-    db = _get_struct_db()
+    graph, pending = await asyncio.to_thread(load)
+    lock = _kg_locks.get(workspace_id)
+    return {**graph, "pending_docs": pending, "building": bool(lock and lock.locked()), "build": _kg_job(workspace_id)}
+
+
+async def _run_kg_build(workspace_id: str, min_edge_weight: int, lock: asyncio.Lock, model: str) -> None:
+    job = _kg_jobs[workspace_id]
+
+    def progress(stage: str, done: int, total: int) -> None:
+        job.update(stage=stage, done=done, total=total)
+
+    ollama_cfg = _CONFIG.get("ollama", {})
     try:
         await build_graph_layout(
             workspace_id=workspace_id,
-            db=db,
+            db=_get_struct_db(),
             host=_OLLAMA_HOST,
-            model=get_config().get("generator", {}).get("model", "llama3.2:1b"),
-            min_edge_weight=min_edge_weight
+            model=model,
+            min_edge_weight=min_edge_weight,
+            timeout=float(ollama_cfg.get("request_timeout", 300)),
+            keep_alive=ollama_cfg.get("keep_alive", "30m"),
+            num_ctx=int(ollama_cfg.get("num_ctx", 8192)),
+            on_progress=progress,
+            run_inference=_inference_scheduler.background,
         )
-        return {"status": "success", "message": "Graph layout built successfully"}
-    except Exception as e:
-        logger.error(f"Failed to build graph layout: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        job.update(state="done")
+    except GenerationError as e:
+        job.update(state="error", error=str(e))
+    except Exception:
+        logger.exception("Failed to build the knowledge graph")
+        job.update(state="error", error="Building the graph failed unexpectedly. See shakti.log for details.")
+    finally:
+        job["finished_at"] = time.time()
+        lock.release()
+
+
+@app.post("/knowledge_graph/build", tags=["Knowledge Graph"], status_code=202)
+@app.post("/kg/rebuild", tags=["Knowledge Graph"], include_in_schema=False, status_code=202)
+async def build_knowledge_graph(
+    workspace_id: str = Query("default"),
+    min_edge_weight: int = Query(1, description="Minimum occurrences to keep an edge"),
+):
+    """
+    Starts extracting entities from newly ingested documents, then community
+    detection, centrality, labelling and pruning — in the background. Returns
+    at once (202); poll GET /knowledge_graph for `build` progress.
+    """
+    lock = _kg_locks.setdefault(workspace_id, asyncio.Lock())
+    if lock.locked():
+        raise HTTPException(status_code=409, detail="The graph for this workspace is already being built.")
+    await lock.acquire()      # released by _run_kg_build when it finishes
+    try:
+        model = user_settings.get_graph_model(_CONFIG)
+        try:
+            installed = await asyncio.to_thread(get_installed_models, _OLLAMA_HOST)
+        except requests.RequestException as error:
+            raise HTTPException(status_code=503, detail="Cannot reach Ollama. Start Ollama before building the graph.") from error
+        if model not in {item.get("name") for item in installed}:
+            raise HTTPException(status_code=409, detail=f"Graph model {model} is not installed. Download it or choose an installed graph model on the Knowledge graph page.")
+    except BaseException:
+        lock.release()
+        raise
+    _kg_jobs[workspace_id] = {"state": "running", "stage": "starting", "done": 0, "total": 0, "model": model,
+                              "error": None, "started_at": time.time()}
+    task = asyncio.create_task(_run_kg_build(workspace_id, min_edge_weight, lock, model))
+    _kg_tasks.add(task)
+    task.add_done_callback(_kg_tasks.discard)
+    return _kg_job(workspace_id)
 
 
 # ── /prompt_preview ───────────────────────────────────────────
 
 @app.post("/prompt_preview", tags=["Debug"])
 async def prompt_preview(req: QueryRequest):
-    """
-    Return the exact prompt that would be sent to the model (debug endpoint).
-    """
-    chunks = _get_retriever().retrieve(req.query, top_k=req.top_k)
-    preview = build_prompt_preview(req.query, chunks)
-    return {"prompt": preview, "chunk_count": len(chunks)}
+    """Return the exact prompt that would be sent to the model (debug endpoint)."""
+    chunks, _, _ = await _gather_context(req, req.query)
+    return {"prompt": build_prompt_preview(req.query, chunks), "chunk_count": len(chunks)}
 
 
 # ── /system/clear ─────────────────────────────────────────────
 
 @app.delete("/system/clear", tags=["System"])
 async def clear_system_data(workspace_id: str = "default"):
-    """Wipes all ingested chunks and structured data for the given workspace."""
-    try:
-        vs = _get_vector_store()
-        if hasattr(vs, "clear_workspace"):
-            vs.clear_workspace(workspace_id)
-        
+    """Wipes all ingested chunks, structured data and stored uploads for a workspace."""
+    def _clear() -> None:
         db = _get_struct_db()
-        if hasattr(db, "clear_workspace"):
-            db.clear_workspace(workspace_id)
-            
+        for doc in db.list_documents(workspace_id):
+            shutil.rmtree(_UPLOAD_DIR / doc["file_key"], ignore_errors=True)
+        _get_vector_store().clear_workspace(workspace_id)
+        db.clear_workspace(workspace_id)
+
+    try:
+        async with _INGEST_SEMAPHORE:
+            await asyncio.to_thread(_clear)
         return {"status": "success", "message": f"Cleared data for workspace {workspace_id}"}
     except Exception as e:
         logger.error(f"Failed to clear system data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/kg/rebuild", tags=["Knowledge Graph"])
-async def rebuild_kg(workspace_id: str = Query("default", description="Workspace/session ID")):
-    """Manually trigger the graph layout generation using the current data in SQLite."""
-    try:
-        db = _get_struct_db()
-        kg_model = get_config().get("generator", {}).get("model", "llama3.2:1b")
-        await build_graph_layout(workspace_id=workspace_id, db=db, host=_OLLAMA_HOST, model=kg_model)
-        return {"status": "success", "message": "Graph layout rebuilt successfully"}
-    except Exception as e:
-        logger.error(f"Failed to rebuild graph layout: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # ── Frontend Mount ─────────────────────────────────────────────
-os.makedirs(_ROOT / "uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(_ROOT / "uploads")), name="uploads")
-app.mount("/", StaticFiles(directory=str(_ROOT / "frontend"), html=True), name="frontend")
+# The built React app (web/ → rag_pipeline/webui) if present, else the legacy
+# single-file UI.
+_WEBUI_DIR = _ROOT / "webui"
+_UI_DIR = _WEBUI_DIR if (_WEBUI_DIR / "index.html").is_file() else _ROOT / "frontend"
+app.mount("/", StaticFiles(directory=str(_UI_DIR), html=True), name="frontend")

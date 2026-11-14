@@ -78,6 +78,7 @@ class Normalizer:
             "teams":     self._normalize_chat,
             "invoice":   self._normalize_invoice,
             "audio":     self._normalize_audio,
+            "text":      self._normalize_text,
         }
         handler = dispatch.get(env.source_type, self._normalize_generic)
         return handler(env)
@@ -315,11 +316,19 @@ class Normalizer:
             ),
         )
 
+    # ── Plain text / Markdown ────────────────────────────────
+
+    def _normalize_text(self, env: ConnectorEnvelope) -> NormalizedDocument:
+        return self._build_generic(env)
+
     # ── Fallback ─────────────────────────────────────────────
 
     def _normalize_generic(self, env: ConnectorEnvelope) -> NormalizedDocument:
-        meta = env.raw_metadata
         logger.warning("Using generic normalizer for source_type=%r", env.source_type)
+        return self._build_generic(env)
+
+    def _build_generic(self, env: ConnectorEnvelope) -> NormalizedDocument:
+        meta = env.raw_metadata
         return NormalizedDocument(
             source_type=env.source_type,
             title=meta.get("title") or meta.get("file_name", env.source_id),

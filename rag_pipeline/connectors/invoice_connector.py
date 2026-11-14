@@ -174,15 +174,13 @@ def _extract_pdf_text(file_path: str) -> str:
     """Extract all text from a PDF, with OCR fallback per page."""
     if not _HAS_FITZ:
         raise RuntimeError("pymupdf required for PDF invoice extraction.")
+    from .pdf_connector import _ocr_page
     doc = fitz.open(file_path)
     parts: List[str] = []
     for page in doc:
         text = page.get_text("text").strip()
-        if not text and _HAS_OCR:
-            mat = fitz.Matrix(2.0, 2.0)
-            pix = page.get_pixmap(matrix=mat)
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            text = pytesseract.image_to_string(img).strip()
+        if not text:
+            text = _ocr_page(page).strip()
         if text:
             parts.append(text)
     doc.close()

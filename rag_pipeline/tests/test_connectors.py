@@ -174,8 +174,8 @@ def test_invoice_connector():
     print(f"    Extracted fields: {found}")
 
 
-def test_envelope_schema_uniformity():
-    """All connectors must produce envelopes with the same required keys."""
+def run_all():
+    """Run every connector test (script mode); pytest collects them individually."""
     all_tests = [
         test_pdf_connector,
         test_docx_connector,
@@ -205,5 +205,5 @@ def test_envelope_schema_uniformity():
 
 
 if __name__ == "__main__":
-    ok = test_envelope_schema_uniformity()
+    ok = run_all()
     sys.exit(0 if ok else 1)

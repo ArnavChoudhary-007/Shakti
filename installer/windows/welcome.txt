@@ -1,0 +1,9 @@
+Shakti runs private document AI on this PC.
+
+Setup installs for your Windows user only; administrator access, Python and Node.js are not required. Windows 10 (version 2004 or later) or Windows 11 with x64 application support is required.
+
+An internet connection is required for setup. Python and AI libraries download on the first installation, using several gigabytes of disk space. Setup may take several minutes. Progress is saved in %LOCALAPPDATA%\Shakti\installer\setup.log.
+
+You can also install Ollama during setup. This downloads its official, signed installer and runs it silently. Existing Ollama installations and models are kept. AI model downloads are chosen later in Shakti.
+
+Setup closes an installed Shakti companion before updating it. Your documents, indexes and settings in %LOCALAPPDATA%\Shakti\data are preserved during updates and uninstalling. Ollama is installed separately and is not removed when you uninstall Shakti.

@@ -195,7 +195,7 @@ def test_chunk_citation_meta_inherited():
         assert "CFO" in (ch.citation_meta.get("sender") or "")
 
 
-def test_all():
+def run_all():
     tests = [
         test_chunk_pdf_single_page,
         test_chunk_pdf_long_page,
@@ -221,5 +221,5 @@ def test_all():
 
 
 if __name__ == "__main__":
-    ok = test_all()
+    ok = run_all()
     sys.exit(0 if ok else 1)
