@@ -14,6 +14,29 @@ AI that runs **entirely on your PC**. No account, no cloud, no subscription.
 
 ## Install (Windows)
 
+Download [Shakti-Setup.exe](https://github.com/ArnavChoudhary-007/Shakti/releases/latest/download/Shakti-Setup.exe)
+from the latest release and follow the setup wizard. It installs for the current
+user without administrator access, with Start-menu and optional desktop shortcuts,
+and appears in **Settings > Apps** for uninstalling. Windows 10 version 2004 or
+later, or Windows 11, with x64 application support is required.
+
+Select **Install Ollama if missing** to download its official installer, verify
+its Ollama Inc. signature, and install it silently. An existing Ollama installation
+and its models are kept. Setup downloads a private Python 3.12 runtime and the AI
+libraries; allow several gigabytes of disk space and an internet connection.
+Shakti then opens in your browser so you can choose and download your AI models.
+
+- **Update:** run the new installer. Existing documents, indexes, pairing and
+  settings stay in `%LOCALAPPDATA%\Shakti\data`. The wizard also supports updating
+  a copy installed with the PowerShell script at the default location.
+- **Uninstall:** use **Settings > Apps > Shakti**. Your data remains in that
+  folder, and Ollama is uninstalled separately. Delete the data folder yourself
+  only if you want to remove your documents and settings too.
+- **Setup errors:** see `%LOCALAPPDATA%\Shakti\installer\setup.log`, then retry.
+  If Ollama setup fails, deselect it and install it from the app later.
+
+### PowerShell alternative
+
 Press <kbd>Win</kbd>+<kbd>R</kbd>, paste this and press Enter:
 
 ```powershell
@@ -104,6 +127,117 @@ end-to-end test stubs the model and uses a temporary data folder), and
 `npm test` in `web/` (frontend regression tests with a mocked companion), and
 `npm run build` in `web/` (type-checks then builds).
 
+## Optional Supabase accounts
+
+Accounts identify users; they do not gate local documents, replace companion
+pairing, or isolate files between people sharing a Windows account. Only email,
+password and authentication/session data go to Supabase. Documents, chats,
+embeddings and knowledge graphs remain local. No cloud tables or storage buckets
+are required for this integration. Any future cloud tables need ownership checks
+and Row Level Security; protected cloud APIs must validate access tokens.
+
+1. In Supabase, enable the Email provider, allow sign-ups, and enable **Confirm
+   email**. Set a minimum password length of at least 8 characters. Configure
+   custom SMTP before public launch; the built-in email service is restricted
+   and is not suitable for general user registration.
+2. Copy `web/.env.example` to `web/.env.local`. Set `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_PUBLISHABLE_KEY` to the project's HTTPS URL and publishable key
+   (a legacy `anon` key also works). Never put a `service_role`, `sb_secret_` key,
+   or database password in a `VITE_*` variable. Frontend variables are public in
+   the built JavaScript, even if the build platform labels them secrets.
+   The build refuses incomplete configuration and privileged keys before
+   generating frontend assets.
+3. In **Authentication > URL Configuration**, set the Site URL to your frontend
+   root. Add these exact development Redirect URLs:
+
+   ```text
+   http://127.0.0.1:5173/?auth=callback
+   http://127.0.0.1:5173/?auth=recovery
+   ```
+
+   Add the corresponding pair for `http://localhost:5173/` if you use localhost,
+   and for `http://127.0.0.1:8000/` (or localhost:8000) if accounts are enabled in
+   the installed companion UI. Add your actual Amplify/custom-domain root with
+   the same query strings for production, and make that root the Site URL.
+   Do not use broad wildcard production redirect allowlists.
+4. Restart Vite after configuration changes, or rebuild for production. Open
+   `/#/auth/login`. Sign-up, email confirmation, login, logout, forgotten-password
+   and password-update flows are available. Login also appears on the landing
+   page and in the app sidebar when configured.
+
+Shakti uses PKCE and **HashRouter**. Email callbacks return to the website root
+with `?auth=callback` or `?auth=recovery`; startup exchanges the one-use code and
+opens the correct hash route. Use these root/query redirect URLs, not physical
+`/auth/callback` or `/auth/reset-password` paths. Leave Supabase's default email
+templates using `{{ .ConfirmationURL }}` intact. Open email links in the same
+browser/profile and origin that requested them; a different browser/device
+does not have the PKCE verifier. Expired or invalid links show recovery guidance.
+
+Sessions persist in this browser. Signing out ends this browser's Supabase
+session only; companion pairing and local data remain. With no auth variables,
+the build runs in local-only mode. An unavailable Supabase service never blocks
+local document features. Authentication pages still work when the companion is
+missing or unpaired. Account sessions are separate on the hosted site and local
+companion origins.
+
+### Google sign-in
+
+The login and sign-up pages include **Continue with Google**. This uses
+Supabase's Google OAuth provider and the same PKCE code exchange as email
+callbacks. No Google client secret belongs in frontend configuration.
+
+1. Create a Web application OAuth client in Google Auth Platform. Set its
+   authorized redirect URI to the exact Supabase Google provider callback URL,
+   `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback`.
+2. Enable Google in Supabase's Authentication provider settings and save the
+   Google Client ID and Client Secret there. While the Google app is in testing,
+   add the intended Google accounts to its test users.
+3. Allow the frontend's root/query callback in Supabase URL Configuration,
+   such as `http://127.0.0.1:5173/?auth=callback`. Add localhost, companion and
+   deployed origins separately if used; do not mix localhost and 127.0.0.1
+   during one sign-in attempt.
+4. Open the login page and choose **Continue with Google**. The browser goes
+   to Google through Supabase and returns to Shakti to exchange the code.
+   After successful sign-in, Shakti returns to the app page where sign-in
+   started (or the home/setup screen when opened directly). The Account link
+   remains available for session details and sign-out.
+
+Google sign-in does not require a separate Shakti password or a Supabase
+confirmation email. Existing email/password flows remain available and retain
+their SMTP restrictions. Google authentication does not grant Shakti access to
+Google Drive or move local documents to the cloud. Only the public Supabase
+URL/key are needed in the app; OAuth credentials remain in Supabase.
+
+Callback URLs are not sign-in entry points: opening one directly reports a
+missing sign-in code, not an expired email. Cancellation, expired email links
+and failed verification show retry guidance without erasing an existing account
+session. Returning to sign-in clears the previous callback error. Pending
+account initialization stops blocking the sign-in screen after 15 seconds;
+local document features are never gated on it. Sign-in return destinations are
+restricted to app routes and never include pairing links or external sites.
+
+### AWS Amplify Hosting
+
+Connect the repository/branch in Amplify Hosting and use the root `amplify.yml`
+build specification. Use Node.js 22 or newer. Set `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_PUBLISHABLE_KEY` in Amplify's build environment and redeploy after
+changes. The build publishes `rag_pipeline/webui`; hash routes do not require
+SPA rewrite rules. A login screen does not require a running Python backend.
+
+Before connecting the hosted website to the companion, configure its exact
+HTTPS origin in `server.web_origins` (or `SHAKTI_WEB_ORIGINS`) and update
+`PUBLIC_SITE_URL` in `web/src/lib/config.ts` to the deployed root. Rebuild the
+installer with the updated defaults for distribution. Do not allow every
+Amplify subdomain. Test browser local-network permissions and companion pairing
+on the actual production domain; Supabase authentication does not bypass them.
+
+For release builds, set GitHub repository **variables** `SUPABASE_URL` and
+`SUPABASE_PUBLISHABLE_KEY` to include optional accounts in the installed UI.
+Without them, the release workflow intentionally produces a local-only build.
+The existing GitHub Pages workflow remains separate; configuring Amplify does
+not automatically turn it off. No AWS or Supabase resources are provisioned by
+this repository configuration.
+
 ## Trying it with the sample data
 
 `sample_data/` holds three synthetic files about one made-up decision: a vendor
@@ -157,9 +291,27 @@ the display is limited; this does not remove any backend graph data.
 
 ## Releasing
 
-- Push a tag like `v0.2.1`: the **Release** workflow builds the UI, packages
-  `dist/shakti-companion.zip` (`scripts/package_release.py`) and attaches it to a
-  GitHub release — that's what `install.ps1` downloads.
+- Push a tag like `v0.2.1`: the **Release** workflow builds the UI and the Inno
+  Setup Windows installer, tests installation, upgrade, launch and uninstall on
+  a disposable Windows runner, then publishes `Shakti-Setup.exe`,
+  `shakti-companion.zip` and `SHA256SUMS.txt` to the GitHub release. The tag's
+  version is embedded in both packages. `install.ps1` continues to use the ZIP.
+- A manual **Release** workflow run builds and tests downloadable Actions
+  artifacts without publishing a release or creating a tag.
+- To build locally, run `npm --prefix web ci`, `npm --prefix web run build`, then
+  `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_installer.ps1`.
+  Use `-Version 0.2.1` to override the package version. The script fetches pinned,
+  SHA-256-verified Inno Setup and uv tools into `dist/windows-toolchain`; Inno
+  runs in portable mode. The result is `dist/Shakti-Setup.exe`.
+- Installer sources are in `installer/windows/`. The EXE contains the web UI,
+  companion source and Python manager; Python and dependencies are downloaded
+  during installation. It is not an offline installer. The generated Shakti
+  installer is currently unsigned; public distribution can show a Windows
+  SmartScreen warning until release signing is configured.
+- For unattended setup use `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+  /TASKS="desktopicon,ollama"`; omit `ollama` to skip its installation.
+  Silent setup does not launch the app. The installation directory is fixed to
+  `%LOCALAPPDATA%\Shakti`; arbitrary `/DIR` overrides are refused.
 - Pushes to `main` that touch `web/` redeploy the public site (**Website**
   workflow). Enable it once under *Settings → Pages → Source: GitHub Actions*.
 - If you fork, update `web/src/lib/config.ts` (repo, site URL) and

@@ -5,6 +5,7 @@ Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true,
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 afterEach(() => {

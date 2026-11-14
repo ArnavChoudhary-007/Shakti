@@ -13,6 +13,7 @@ import { UploadsProvider, useUploads } from "./lib/uploads";
 import { WorkspaceProvider, useWorkspace } from "./lib/workspace";
 import { SourceList, sourceId } from "./components/Answer";
 import { graphFixture } from "./test/graph-fixture";
+import { AuthProvider } from "./lib/auth";
 
 let api: Api;
 vi.mock("./lib/connection", () => ({
@@ -58,9 +59,9 @@ async function mount(content: ReactNode, path = "/") {
     root.render(
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={[path]}>
-          <WorkspaceProvider><PullsProvider><UploadsProvider>
+          <AuthProvider><WorkspaceProvider><PullsProvider><UploadsProvider>
             <Probe />{content}
-          </UploadsProvider></PullsProvider></WorkspaceProvider>
+          </UploadsProvider></PullsProvider></WorkspaceProvider></AuthProvider>
         </MemoryRouter>
       </QueryClientProvider>,
     );

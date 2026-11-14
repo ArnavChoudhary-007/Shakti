@@ -1,18 +1,17 @@
 name: Release
 
-# Push a tag like v0.2.0 to build the companion package that install.ps1
-# downloads, and attach it to a GitHub release.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   package:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,17 +21,62 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Build web UI
         working-directory: web
-        run: npm ci && npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Package companion
-        run: python scripts/package_release.py
+      - name: Build Windows installer and companion package
+        shell: powershell
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            ./scripts/build_windows_installer.ps1 -Version $env:GITHUB_REF_NAME.Substring(1)
+          } else {
+            ./scripts/build_windows_installer.ps1
+          }
+      - name: Test install, upgrade, launch and uninstall
+        shell: powershell
+        run: ./scripts/test_windows_installer.ps1
+      - name: Upload installer diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-diagnostics
+          path: |
+            dist/installer-test-*.log
+            ~/AppData/Local/Shakti/installer/setup.log
+            ~/AppData/Local/Shakti/data/shakti.log
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shakti-release
+          path: |
+            dist/Shakti-Setup.exe
+            dist/shakti-companion.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: shakti-release
+          path: dist
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="v$(node -p "require('./web/package.json').version")"; fi
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Shakti $TAG" --generate-notes
-          gh release upload "$TAG" dist/shakti-companion.zip --clobber
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --title "Shakti $RELEASE_TAG" --generate-notes
+          gh release upload "$RELEASE_TAG" dist/Shakti-Setup.exe dist/shakti-companion.zip dist/SHA256SUMS.txt --clobber

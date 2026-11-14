@@ -5,15 +5,12 @@ import { GraphFigure } from "@/components/landing/GraphFigure";
 import { HeroDeco } from "@/components/landing/HeroDeco";
 import { ModelsFigure } from "@/components/landing/ModelsFigure";
 import { useConnection } from "@/lib/connection";
-import { DEFAULT_COMPANION_URL, INSTALL_COMMAND, OLLAMA_DOWNLOAD_URL, REPO } from "@/lib/config";
+import { DEFAULT_COMPANION_URL, INSTALL_COMMAND, OLLAMA_DOWNLOAD_URL, REPO, WINDOWS_INSTALLER_URL } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import { AccountLink } from "@/components/AccountLink";
+import { useAuth } from "@/lib/auth";
+import { useNavigate } from "react-router-dom";
 import "@/components/landing/landing.css";
-
-/**
- * Public landing page. Shown only when no companion is reachable from this
- * browser, so every "Open the app" leads to the install section: once the
- * companion is running, App switches to it automatically.
- */
 
 const REPO_URL = `https://github.com/${REPO}`;
 
@@ -35,10 +32,15 @@ function NavLink({ to, children }: { to: string; children: ReactNode }) {
 }
 
 function Cta({ size = "lg", className, style }: { size?: "sm" | "lg"; className?: string; style?: CSSProperties }) {
+  const { phase } = useConnection();
+  const { configured, session } = useAuth();
+  const navigate = useNavigate();
+  const available = phase === "ready" || phase === "unpaired";
+  const needsSignIn = configured && !session;
   return (
     <a
-      href="#install"
-      onClick={jumpTo("install")}
+      href={needsSignIn ? "#/auth/login?next=%2F" : available ? "#/" : "#install"}
+      onClick={needsSignIn || available ? (event) => { event.preventDefault(); navigate(needsSignIn ? "/auth/login?next=%2F" : "/"); } : jumpTo("install")}
       style={style}
       className={cn(
         "cta inline-flex items-center justify-center rounded-full bg-(--l-text) font-semibold text-(--l-bg) no-underline",
@@ -133,7 +135,7 @@ function Kbd({ children }: { children: ReactNode }) {
 }
 
 function InstallCard() {
-  const { retry } = useConnection();
+  const { retry, phase } = useConnection();
   const isWindows = /windows/i.test(navigator.userAgent);
   const [checks, setChecks] = useState(0);
 
@@ -149,6 +151,15 @@ function InstallCard() {
 
   const link = "font-medium text-(--l-accent) underline-offset-4 hover:underline";
 
+  if (phase === "ready" || phase === "unpaired") {
+    return (
+      <div id="install" className="mt-4 w-full max-w-[640px] scroll-mt-6 rounded-2xl border border-(--l-line) bg-(--l-panel) p-6 text-center">
+        <p className="mb-4 text-(--l-text-2)">Shakti is running on this PC. Open the app to continue.</p>
+        <Cta />
+      </div>
+    );
+  }
+
   return (
     <div id="install" className="mt-4 w-full max-w-[640px] scroll-mt-6 rounded-2xl border border-(--l-line) bg-(--l-panel) p-6 text-left shadow-[0_40px_80px_-40px_rgba(0,0,0,0.9)] sm:p-7">
       <p className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-(--l-accent)">Shakti isn't running on this PC</p>
@@ -156,13 +167,20 @@ function InstallCard() {
       {isWindows ? (
         <>
           <p className="mt-3 text-[15px] leading-relaxed text-(--l-text-2)">
-            Press <Kbd>Win</Kbd> + <Kbd>R</Kbd>, paste this command and press Enter. It installs Shakti for your user only, with no admin rights needed.
+            Download Shakti-Setup.exe and follow the setup wizard. It installs for your Windows user, adds shortcuts, and can install Ollama for you.
           </p>
-          <CopyCommand value={INSTALL_COMMAND} />
+          <a className="mt-4 inline-flex min-h-12 items-center justify-center rounded-full bg-(--l-text) px-6 text-sm font-semibold text-(--l-bg)" href={WINDOWS_INSTALLER_URL}>
+            Download for Windows
+          </a>
           <p className="mt-2.5 text-xs leading-relaxed text-(--l-muted)">
-            The first install downloads about 1–2 GB (Python and AI libraries) and takes a few minutes.{" "}
-            <a className={link} href={`${REPO_URL}/blob/main/install.ps1`} target="_blank" rel="noreferrer">Read the script</a> before running it.
+            Windows 10/11 with x64 app support. No administrator access, Python or Node.js needed. The first setup needs internet access and several gigabytes for Python, AI libraries and optional Ollama. Models are downloaded later.
           </p>
+          <details className="mt-4 text-sm text-(--l-muted)">
+            <summary className="cursor-pointer font-medium text-(--l-text-2)">PowerShell installation alternative</summary>
+            <p className="mt-2">Press <Kbd>Win</Kbd> + <Kbd>R</Kbd>, paste the command and press Enter.</p>
+            <CopyCommand value={INSTALL_COMMAND} />
+            <a className={link} href={`${REPO_URL}/blob/main/install.ps1`} target="_blank" rel="noreferrer">Read the script</a>
+          </details>
         </>
       ) : (
         <p className="mt-3 text-[15px] leading-relaxed text-(--l-text-2)">
@@ -172,7 +190,7 @@ function InstallCard() {
       )}
 
       <ol className="mt-5 flex list-none flex-col gap-2 border-t border-(--l-line-soft) p-0 pt-5 text-sm text-(--l-muted)">
-        <li className="flex gap-3"><span className="font-mono text-(--l-accent)">1</span> Shakti opens in your browser and helps you install <a className={link} href={OLLAMA_DOWNLOAD_URL} target="_blank" rel="noreferrer">Ollama</a>, the free engine that runs AI models locally.</li>
+        <li className="flex gap-3"><span className="font-mono text-(--l-accent)">1</span> Shakti opens in your browser and connects to <a className={link} href={OLLAMA_DOWNLOAD_URL} target="_blank" rel="noreferrer">Ollama</a>. If you skipped Ollama during installation, the setup page helps you install it.</li>
         <li className="flex gap-3"><span className="font-mono text-(--l-accent)">2</span> It suggests a model that fits your PC's memory and downloads it, along with the small models that index your files.</li>
         <li className="flex gap-3"><span className="font-mono text-(--l-accent)">3</span> Add documents, sorted into workspaces, and ask.</li>
       </ol>
@@ -217,6 +235,7 @@ export default function LandingPage() {
             <a href={REPO_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center px-1 text-[15px] text-(--l-muted) transition-colors hover:text-(--l-text)">
               GitHub
             </a>
+            <AccountLink className="inline-flex min-h-11 items-center px-1 text-[15px] text-(--l-text)" />
             <Cta size="sm" />
           </nav>
         </header>

@@ -6,6 +6,7 @@ import { useSetupStatus, useWorkspaces } from "@/lib/queries";
 import { normalizeWorkspaceName, useWorkspace } from "@/lib/workspace";
 import { useConnection } from "@/lib/connection";
 import { Alert, Button } from "./ui";
+import { AccountLink } from "./AccountLink";
 
 const NAV = [
   { to: "/chat", label: "Ask", icon: MessageSquare },
@@ -146,6 +147,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         ))}
       </ul>
       <div className="mt-auto space-y-2">
+        <AccountLink className="block rounded-lg px-2 py-1.5 text-sm font-medium text-brand-600 hover:bg-zinc-100 dark:hover:bg-zinc-800" />
         <OllamaIndicator />
         <p className="px-2 text-[11px] leading-4 text-zinc-400">
           Everything runs on this PC. {mode === "remote" ? "This website talks to your local Shakti app." : "Your files never leave it."}

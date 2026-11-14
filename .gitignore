@@ -14,6 +14,7 @@ dummy_ingest/
 cache/
 .env
 .env.*
+!web/.env.example
 credentials/
 /rag_pipeline/config.yaml
 # Companion runtime data when the data dir is the repo root (dev)

@@ -5,6 +5,7 @@ import { Logo } from "@/components/Layout";
 import { Button, Card, Spinner } from "@/components/ui";
 import { useConnection } from "@/lib/connection";
 import { DEFAULT_COMPANION_URL } from "@/lib/config";
+import { AccountLink } from "@/components/AccountLink";
 
 /** Public website, companion found, but this browser isn't paired yet. */
 export function PairPage() {
@@ -23,6 +24,7 @@ export function PairPage() {
         <a href={DEFAULT_COMPANION_URL} className="mt-6 inline-block">
           <Button size="lg"><ExternalLink className="h-4 w-4" /> Open Shakti</Button>
         </a>
+        <AccountLink className="mt-4 block text-sm text-brand-600 underline" />
       </Card>
     </div>
   );

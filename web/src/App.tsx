@@ -12,6 +12,7 @@ import ChatPage from "@/pages/Chat";
 import DocumentsPage from "@/pages/Documents";
 import ModelsPage from "@/pages/Models";
 import SettingsPage from "@/pages/Settings";
+import AuthPage from "@/pages/Auth";
 
 // The graph page pulls in d3-force; load it only when visited.
 const GraphPage = lazy(() => import("@/pages/Graph"));
@@ -46,6 +47,8 @@ export default function App() {
   const { phase } = useConnection();
   const location = useLocation();
 
+  if (location.pathname === "/landing") return <LandingPage />;
+  if (location.pathname.startsWith("/auth/") || location.pathname === "/account") return <AuthPage />;
   if (location.pathname === "/connect") return <ConnectPage />;
   if (phase === "checking") return <Splash />;
   if (phase === "missing") return <LandingPage />;
