@@ -218,6 +218,11 @@ restricted to app routes and never include pairing links or external sites.
 
 ### AWS Amplify Hosting
 
+The production website is `https://main.d3ucnkd4219yxd.amplifyapp.com/`.
+New companion installations allow that exact origin, and their Settings page
+generates pairing links to this address. Existing installations with an explicit
+`server.web_origins` list must add the new origin to their preserved configuration.
+
 Connect the repository/branch in Amplify Hosting and use the root `amplify.yml`
 build specification. Use Node.js 22 or newer. Set `VITE_SUPABASE_URL` and
 `VITE_SUPABASE_PUBLISHABLE_KEY` in Amplify's build environment and redeploy after

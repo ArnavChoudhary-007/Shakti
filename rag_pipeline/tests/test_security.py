@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rag_pipeline.api.main import app, _WEB_ORIGINS
+from rag_pipeline.api.security import web_origins
 
 client = TestClient(app)
 EVIL = {"Origin": "https://evil.example"}
@@ -17,6 +18,14 @@ WEB = {"Origin": WEB_ORIGIN}
 
 def _token() -> str:
     return client.get("/pair/token").json()["token"]
+
+
+def test_default_origins_allow_only_the_finalized_amplify_site(monkeypatch):
+    monkeypatch.delenv("SHAKTI_WEB_ORIGINS", raising=False)
+    origins = web_origins({})
+    assert "https://main.d3ucnkd4219yxd.amplifyapp.com" in origins
+    assert "https://other.amplifyapp.com" not in origins
+    assert "http://main.d3ucnkd4219yxd.amplifyapp.com" not in origins
 
 
 def test_local_page_needs_no_token():

@@ -32,7 +32,10 @@ _UNPAIRED_PATHS = {"/version"}
 
 _ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "testserver"}
 
-_DEFAULT_WEB_ORIGINS = ["https://arnavchoudhary-007.github.io"]
+_DEFAULT_WEB_ORIGINS = [
+    "https://main.d3ucnkd4219yxd.amplifyapp.com",
+    "https://arnavchoudhary-007.github.io",
+]
 
 
 def local_origins(port: int) -> Set[str]:

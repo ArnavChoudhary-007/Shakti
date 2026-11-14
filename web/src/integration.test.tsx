@@ -109,6 +109,15 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
+it("pairs the installed companion with the production Amplify website", async () => {
+  const fallback = respond;
+  respond = (url, init) => url.pathname === "/pair/token" ? Response.json({ token: "test-pairing-token", web_origins: ["https://main.d3ucnkd4219yxd.amplifyapp.com"] }) : fallback(url, init);
+  await mount(<App />, "/settings");
+  await advance(20);
+  const link = container.querySelector('a[href*="#/connect?token="]');
+  expect(link?.getAttribute("href")).toBe("https://main.d3ucnkd4219yxd.amplifyapp.com/#/connect?token=test-pairing-token");
+});
+
 it("shows setup-status errors at home and recovers when Retry succeeds", async () => {
   const fallback = respond;
   let failing = true;

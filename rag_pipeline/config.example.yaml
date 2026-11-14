@@ -19,6 +19,7 @@ server:
   # Public website origins allowed to call this companion once paired.
   # Add more with the SHAKTI_WEB_ORIGINS env var (comma-separated).
   web_origins:
+    - "https://main.d3ucnkd4219yxd.amplifyapp.com"
     - "https://arnavchoudhary-007.github.io"
 
 # ── Embedding ────────────────────────────────────────────────
